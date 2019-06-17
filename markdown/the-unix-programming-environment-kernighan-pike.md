@@ -629,8 +629,85 @@ dial-a-prayer	212-246-4200
 dial santa	212-976-3636
 dow jones report	212-976-4141
 ```
+then the `grep` command can be used to search it.
+(Your own `lib` directory is a good place to store such personal data bases.)
+Since `grep` doesn't care about the format of information, you can search for names, addresses, zip-codes, or anything else that you like.
+Let's make a directory assistance program, which we'll call `411` in honor of the telephone directory assistance number where we live:
+```
+$ echo 'grep $* /usr/you/lib/phone-book' > 411
+$ cx 411
+$ 411 joke
+dial-a-joke	212-976-3838
+$ 411 dial
+dial-a-joke	212-976-3838
+dial-a-prayer	212-246-4200
+dial santa	212-976-3636
+$ 411 'dow jones'
+grep: can't open jones
+$                                 Something is wrong
+```
+The final example is included to show a potential problem: even though `dow jones` is presented to `411` as a single argument, it contains a space and is no longer in quotes, so the sub-shell interpreting the `411` command converts it into two arguments to `grep`: it's as if you had typed
+```
+$ grep dow jones /usr/you/lib/phone-book
+```
+and that's obviously wrong.
+
+One remedy relies on the way the shell treats double quotes.
+Although anything quoted with `'...'` us inviolate, the shell looks inside `"..."` for `$`'s `\\`'s, and `'...'`'s.
+So if you revise `411` to look like
+```
+grep "$*" /usr/you/lib/phone-book
+```
+the `$*` will be replaced by the arguments, but it will be passed to `grep` as a single argument even if it contains spaces.
+```
+$ 411 dow jones
+dow jones report	212-976-4141
+$
+```
+
+By the way, you can make `grep` (and thus `411`) case-independent with the `-y` option:
+```
+$ grep -y pattern ...
+```
+With `-y`, lower case letters in `pattern` will also match upper case letters in the input.
+(This option is in the 7th Edition `grep`, but is absent from some other systems.)
+
+There are fine points about command arguments that we are skipping over until Chapter 5, but one is worth noting here.
+The argument `$0` is the name of the program being executed - in `cx`, `$0` is `"cx"`.
+A novel use of `$0` is in the implementation of the programs `2`, `3`, `4`, ..., which print their output in that many columns:
+```
+$ who | 2
+drh			tty0		Sep 28 21:23			cvw			tty5		Sep 28 21:09
+dmu			tty6		Sep 28 22:10			scj			tty7		Sep 28 22:11
+you			tty9  	Sep 28 23:00			jib			ttyb		Sep 28 19:58
+```
+
+The implementations of `2`, `3`, ... are identical; in fact they are links to the same file:
+```
+$ ln 2 3; ln 2 4; ln 2 5; ln 2 6; 
+$ ls -li [1-9]
+16722 -rwxrwxrwx 5 you			51 Sep 28 23:21 2
+16722 -rwxrwxrwx 5 you			51 Sep 28 23:21 3
+16722 -rwxrwxrwx 5 you			51 Sep 28 23:21 4
+16722 -rwxrwxrwx 5 you			51 Sep 28 23:21 5
+16722 -rwxrwxrwx 5 you			51 Sep 28 23:e1 6
+$ ls /usr/you/bin | 5
+...
+...
+$ cat 5
+# 2, 3, ...: print in n columns
+pr -$0 -t -l1 $*
+```
+The `-t` option turns off the heading at the top of the page and the `-ln` option sets the page length to `n` lines.
+The name of the program becomes the number-of-columns argument to `pr`, so the output is printed a row at a time in the number of columns specified by `$0`.
 
 ### 3.5 Program output as arguments
+
+Let us turn now from command arguments within a shell file to the generation of arguments.
+Certainly filename expansion from metacharacters like `*` is the most common way to generate arguments (other than by providing them explicitly), but another good way is by running a program.
+The output of any program can be placed in a command line by enclosing the invocation in back-quotes (\`...\`)
+
+
 ### 3.6 Shell variables
 ### 3.7 More on I/O redirection
 ### 3.8 Looping in shell programs
