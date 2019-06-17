@@ -705,8 +705,66 @@ The name of the program becomes the number-of-columns argument to `pr`, so the o
 
 Let us turn now from command arguments within a shell file to the generation of arguments.
 Certainly filename expansion from metacharacters like `*` is the most common way to generate arguments (other than by providing them explicitly), but another good way is by running a program.
-The output of any program can be placed in a command line by enclosing the invocation in back-quotes (\`...\`)
+The output of any program can be placed in a command line by enclosing the invocation in backquotes (\`...\`)
+```
+$ echo At the tone the time will be `date`.
+At the tone the time will be Sun Jun 16 22:19:42 CDT 2019.
+$
+```
+A small change illustrates that \`...\` is interpreted inside double quotes `"..."`:
+```
+$ echo "At the tone
+> the time will be `date`."
+At the tone
+the time will be Mon Jun 17 09:36:43 CDT 2019.
+$
+```
 
+As another example, suppose you want to send mail to a list of people whose login names are in the file `mailinglist`.
+A clumsy way to handle this is to edit `mailinglist` into a suitable `mail` command and present it to she shell, but it's far easier to say
+```
+$ mail `cat mailinglist` < letter
+```
+This runs `cat` to produce the list of user names, and those become the arguments to `mail`. 
+(When interpreting output in backquotes as arguments, the shell treats newlines as word separators, not command-line terminators; this subject is discussed fully in Chapter 5.)
+Backquotes are easy enough to use that there's really no need for a separate mailing-list option to the `mail` command.
+
+A slightly different approach is to convert the file `mailinglist` from just a list of names into a program that prints the list of names:
+```
+$ cat mailinglist
+echo don whr ejs mb
+$ cx mailinglist
+$ mailinglist
+don whr ejs mb
+$
+```
+
+With the addition of one more program, it's even possible to modify the user list interactively.
+The program is called `pick`:
+```
+$ pick arguments...
+```
+present the `arguments` one at a time and waits after each for a response.
+The output of `pick` is those arguments selected by `y` (for "yes") responses; any other response causes the argument to be discarded.
+For example,
+```
+$ pr `pick *.c` | lpr
+```
+presents each filename that ends in `.c`; those selected are printed with `pr` and `lpr`.
+(`pick` is not part of the 7th Edition, but it's so easy and useful that we've included versions of it in Chapters 5 and 6.)
+
+Suppose you have the second version of `mailinglist`.
+Then
+```
+$ mail `pick \`mailinglist\`` < letter
+don? y
+whr?
+ejs?
+mb? y
+$
+```
+sends the letter to `don` and `mb`.
+Notice that there are nested backquotes; the backslashes prevent the interpretation of the inner \`...\` during the parsing of the outer one.
 
 ### 3.6 Shell variables
 ### 3.7 More on I/O redirection
