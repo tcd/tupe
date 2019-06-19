@@ -767,8 +767,486 @@ sends the letter to `don` and `mb`.
 Notice that there are nested backquotes; the backslashes prevent the interpretation of the inner \`...\` during the parsing of the outer one.
 
 ### 3.6 Shell variables
+
+The shell has variables, like those in most programming languages, which in shell jargon are sometimes called *parameters*.
+Strings such as `$1` are *positional parameters* - variables that hold the arguments to a shell file.
+The digit indicates the position on the command line.
+We have seen other shell variables: `PATH` is the list of directories to search for commands, `HOME` is your login directory, and so on.
+Unlike variables in a regular language, the argument variables cannot be changed; although `PATH` is a variable whose value is `$PATH`, there is no variable `1` whose value is `$1`.
+`$1` is nothing more than a compact notation for the first argument.
+
+Leaving positional parameters aside, shell variables can be created, accessed, and modified.
+For example,
+```
+$ PATH=:/bin/usr/bin
+```
+is an assignment that changes the search path.
+There must be no spaces around the equals sign, and the assigned value must be a single word, which means it must be quoted if it contains shell metacharacters that should not be interpreted.
+The value of a variable is extracted by preceding the name by a dollar sign:
+```
+$ PATH=$PATH:/usr/games
+$ echo $PATH
+:/usr/you/bin:/bin:/usr/bin:/usr/games
+$ PATH=:/usr/you/bin:/bin:/usr/bin
+$
+```
+
+Not all variables are special to the shell.
+You can create new variables by assigning them to values; traditionally, variables with special meaning are spelled in upper case, so ordinary names are in lower case.
+One of the common uses of variables is to remember long strings such as pathnames:
+```
+$ pwd
+/usr/you/bin
+$ dir=`pwd`              Remember where we are
+$ cd /usr/mary/bin       Go somewhere else
+$ ln $dir/cx .           Use the variable in a filename
+$ ...                    Work for a while
+$ cd $dir                Return
+$ pwd
+/usr/you/bin
+$
+```
+
+The shell build-in command `set` displays the values of all your defined variables.
+To see just one or two, `echo` is more appropriate.
+```
+$ set
+HOME=/usr/you
+IFS=
+
+PATH=:usr/you/bin:/bin:/usr/bin
+PS1=$
+PS2=>
+dir=/usr/you/bin
+$ echo $dir
+/usr/you/bin
+$
+```
+
+The value of a variable is associated with the shell that creates it, and is not automatically passed to the shell's children.
+```
+$ x=Hello                Create x
+$ sh                     New shell
+$ echo $x
+                         Newline only: x undefined in sub-shell
+$ ctl-d                  leave this shell
+$                        back in original shell
+$ echo $x                
+Hello                    x still defined
+$
+```
+This means that a shell file cannot change the value of a variable, because the shell file is run by a sub-shell:
+```
+$ echo `x="Good Bye"     Make a two-line shell file...
+> echo $x` > setx        ... to set and print x
+$ cat setx
+x="Good Bye"
+echo $x
+$ echo $x
+Hello                    x is Hello in the original shell
+sh setx
+Good Bye                 x is Good Bye in the sub-shell...
+$ echo $x
+Hello                    ...but still Hello in this shell
+$
+```
+
+There are times when using a shell file to change shell variables would be useful, however.
+An obvious example is a file to add a new directory to your `PATH`.
+The shell therefore provides a command `.` (dot) that executes the commands in a file in the current shell, rather than in a sub-shell.
+This was originally invented so people could re-execute their `.profile` files without having to log in again, but it has other uses:
+```
+$ cat /usr/you/bin/games
+PATH=$PATH:/usr/games    Append /usr/games/to PATH
+$ echo $PATH
+:/usr/you/bin:/bin:/usr/bin
+$ . games
+$ echo $PATH
+:/usr/you/bin:/bin:/usr/bin
+$
+```
+The file for the `.` command is searched for with the `PATH` mechanism, so it can be placed in your `bin` directory.
+
+When a file is executing with `.`, it is only superficially like running a shell file.
+The file is not "executed" in the usual sense of the word.
+Instead, the commands in it are interpreted exactly as if you had typed them interactively - the standard input of the shell is temporarily redirected to come from the file.
+Since the file is read but not executed, it need not have execute permissions.
+Another difference is that the file does not receive command line arguments; instead `$1`, `$2`, and the rest are empty.
+It would be nice if arguments were passed, but they are not.
+
+The other way to see the value of a variable in a sub-shell is to assign to it explicitly on the command line *before* the command itself:
+```
+$ echo `echo $x` > echox
+$ cx echox
+echo $x
+Hello                    As before
+$ echox
+                         x not set in sub-shell
+$ x=Hi echox
+Hi                       Value of x passed to sub-shell
+$
+```
+(Originally, assignments anywhere in the command line were passed to the command, but this interfered with `dd`(1).)
+
+The `.` mechanism should be used to change the value of a variable permanently, while in-line assignments should be used for temporary changes.
+As an example, consider again searching `/usr/games` for commands, with the directory not in your `PATH`:
+```
+$ ls /usr/games | grep fort
+fortune                            Fortune cookie command
+$ fortune
+fortune: not found
+$ echo $PATH
+:/usr/you/bin:/bin:/usr/bin
+$ PATH=/usr/games fortune
+Ring the bell; close the book; quench the candle.
+$ echo $PATH
+:/usr/you/bin:/bin:/usr/bin        PATH unchanged 
+$ cat /usr/you/bin/games
+PATH=$PATH:/usr/you/games          games command still there
+$ . games
+$ fortune
+Premature optimization is the root of all evil - Knuth
+$ echo $PATH
+:/usr/you/bin:/bin:/usr/bin:/usr/games    PATH unchanged 
+$
+```
+
+It's possible to exploit both these mechanisms in a single shell file.
+A slightly different `games` command can be used a single time without changing `PATH`, or can set `PATH` permanently to include `/usr/games`:
+```
+$ cat /usr/you/bin/games
+PATH=$PATH:/usr/games $*
+$ cx /usr/you/bin/games
+$ echo $PATH
+:/usr/you/bin:/bin:/usr/bin
+$ . games
+$ echo $PATH
+:/usr/you/bin:/bin:/usr/bin:/usr/games
+$ fortune
+He who hesitates is sometimes saved.
+$
+```
+The first call to `games` ran the file in a sub-shell, where `PATH` was temporarily modified to include `/usr/games`.
+The second example instead interpreted the file in the current shell, with `$*` the empty string, so there was no command on the line, and `PATH` was modified.
+Using `games` in these two ways is tricky, but results in a facility that is convenient and natural to use.
+
+When you want to make the value of a variable accessible in sub-shells, the shell's `export` command should be used.
+(You might think about why there is no way to export the value of a variable from a sub-shell to its parent.)
+Here is one of our earlier examples, this time with the variable `exported`:
+```
+$ x=Hello
+$ export x
+$ sh                     New shell
+$ echo $x
+Hello                    x known in sub-shell
+$ x='Good Bye'           Change its value
+$ echo $x
+Good Bye
+$ ctl-d                  Leave this shell
+$                        Back in original shell
+$ echo $x
+Hello                    x still Hello
+$
+```
+`export` has subtle semantics, but for day-to-day purposes at least, a rule of thumb suffices: don't export temporary variables set for short-term convenience, but always export variables you want set in all your shells and sub-shells (including, for example, shells started with `ed`'s `!` command).
+Therefore, variables special to the shell, such as `PATH` and `HOME`, should always be exported.
+
 ### 3.7 More on I/O redirection
+
+The standard error was invented so that error messages would always appear on the terminal:
+```
+$ diff file1 file12 > diff.out
+diff: file12: no such file or directory
+$
+```
+It's certainly desirable that error messages work this way - it would be most unfortunate if they disappeared into `diff.out`, leaving you with the impression that the erroneous `diff` command had worked properly.
+
+Every program has three files established when it starts, numbered by small integers called *file descriptors* (which we will return to in Chapter 7).
+The standard input, `0`, and the standard output, `1`, which we are already familiar with, are often redirected from and into files and pipes.
+The last, numbered `2`, is the *standard error* output, and normally finds its way to your terminal.
+
+Sometimes programs produce output on the standard error even when they work properly.
+One common example is the program `time`, which runs a command and then reports on the standard error how much time it took.
+```
+$ time wc ch3.1
+		931		4228		22691		ch3.1
+
+real			1.0
+user			0.4
+sys				0.4
+$ time wc ch3.1 > wc.out
+
+real			2.0
+user			0.4
+sys				0.3
+$ time wc ch3.1 > wc.out 2>time.out
+$ cat time.out
+
+real			1.0
+user			0.4
+sys				0.3
+$
+```
+The notation `2>filename` (no spaces are allowed between the `2` and the `>`) directs the standard error output into the file; its syntactically graceless but it does the job.
+(The times produced by `time` are not very accurate for such a short test as this one, but for a sequence of longer tests the numbers are useful and reasonably trustworthy, and you might well want to save them for further analysis; see, for example, Table 8.1)
+
+It is also possible to merge the two output streams:
+```
+$ time wc ch3.1 > wc.out 2>&1
+cat wc.out
+		931		4228		22691		ch3.1
+
+real			1.0
+user			0.4
+sys				0.3
+$
+```
+The notation `2>&1` tells the shell to put the standard error on the same stream as the standard output.
+There is not much mnemonic value to the ampersand; it's simply an idiom to be learned.
+You can also use `1>&2` to add the standard output to the standard error:
+```
+$ echo ... 1>&2
+```
+prints on the standard error.
+In shell files, it prevents messages from vanishing accidentally down a pipe or into a file.
+
+The shell provides a mechanism so you can put the standard input for a command along with the command, rather than in a separate file, so the shell file can be completely self-contained.
+Our directory information program `411` could be written
+```
+$ cat 411
+grep "*." <<End
+dial-a-joke	212-976-3838
+dial-a-prayer	212-246-4200
+dial santa	212-976-3636
+dow jones report	212-976-4141
+End
+$
+```
+The shell jargon for this construction is a *here document*; it means that the input is right here instead of in a file somewhere.
+The `<<` signals the construction; the word that follows (`End` in our example) is used to delimit the input, which is taken to be everything up to an occurrence of that word on a line by itself.
+The shell substitutes for `$`, \`...\`, and `\\` in a here document, unless some part of the word is quoted with quotes or a backslash; in that case, the whole document is taken literally.
+
+We'll return to here documents at the end of this chapter, with a much more interesting example.
+
+Table 3.2 lists the various input-output redirections that the shell understands.
+
+| notation   | description                                                                  |
+|------------|------------------------------------------------------------------------------|
+| `>file`    | direct standard output to `file`                                             |
+| `>>file`   | append standard output to `file`                                             |
+| `<file`    | take standard output from `file`                                             |
+| `p1pipep2` | connect standard output of program `p1` to input of `p2`                     |
+| `^`        | obsolete synonym for pipe                                                    |
+| `n>file`   | direct output from file descriptor `n` to `file`                             |
+| `n>>file`  | append output from file descriptor `n` to `file`                             |
+| `n>&m`     | merge output from file descriptor `n` with file descriptor `m`               |
+| `n<&m`     | merge input from file descriptor `n` with file descriptor `m`                |
+| `<<s`      | here document: take standard input until next `s` at beginning of a new line |
+| `<<\s`     | here document with no substitution                                           |
+| `<<'s'`    | here document with no substitution                                           |
+
+
 ### 3.8 Looping in shell programs
+
+The shell is actually a programming language: it has variables, loops, decision making, and so on.
+We will discuss basic looping here, and talk more about control flow in Chapter 5
+
+Looping over a set of filenames is very common, and the shell's `for` statement is the only control-flow statement that you might commonly type at the terminal rather than putting in a file for later execution.
+The syntax is:
+```
+for var in list of words
+do
+			commands
+done
+```
+For example, a `for` statement to echo filenames one per line is just
+```
+$ for i in *
+> do
+>     echo $i
+> done
+```
+The `i` can be any shell variable, although `i` is traditional.
+Note that the variable's value is accessed by `$i`, but that the `for` loop refers to the variable as `i`.
+We used `*` to pick up all the files in the current directory, but any other list of arguments can be used.
+Normally you want to do something more interesting than merely printing filenames.
+One thing we do frequently is to compare a set of filenames with previous versions.
+For example, to compare the old version of Chapter 2 (kept in directory `old`) with the current one:
+```
+$ ls ch2.*
+ch2.1			ch2.2			ch2.3			ch2.4			ch2.5			ch2.6			ch2.7
+$ for i in ch2.*
+> do
+>			echo $i;
+>			diff -b old/$i $i
+>			echo                         Add a blank line for readibility
+> done | pr -h "diff `pwd`/old `pwd`" | lpr &
+3712                               Process id
+$
+```
+We piped the output into `pr` and `lpr` just to illustrate that it's possible: the standard output of the programs within a `for` goes to the standard output of the `for` itself.
+We put a frequency heading on the output with the `-h` option of `pr`, using two embedded calls of `pwd`.
+And we set the whole sequence running asynchronously (`&`) so we wouldn't have to wait for it; the `&` applies to the entire loop and pipeline.
+
+We prefer to format a `for` statement as shown, but you can compress it somewhat.
+The main limitations are that `do` and `done` are only recognized as keywords when they appear right after a newline or semicolon.
+Depending on the size of the `for`, it's sometimes better to write it all on one line:
+```
+$ for i in list; do commands; done
+```
+
+You should use the `for` loop for multiple commands, or where the built-in argument processing in individual commands is not suitable.
+But don't use it when the individual command will already loop over filenames:
+```
+# poor idea:
+for i in $*
+do
+			chmod +x $i
+done
+```
+is inferior to
+```
+chmod +x $*
+```
+because the `for` loop executes a separate `chmod` for each file, which is more expensive in computer resources.
+(Be sure that you understand the difference between
+```
+for i in *
+```
+which loops over all filenames in the current directory, and
+```
+for i in $*
+```
+which loops over all arguments to the shell file.)
+
+The argument list for a `for` mist often comes from pattern matching on filenames, but it can come from anything.
+It could be
+```
+$ for i in `cat ...`
+```
+or the arguments could just be typed.
+For example, earlier in this chapter we created a group of programs for multi-column printing, called `2`, `3`, and so on.
+These are just links to a single file that can be made, once the file `2` has been written, by
+```
+$ for i in 2 3 4 5; do ln 2 $i; done
+$
+```
+
+As a somewhat more interesting use of the `for`, we could use `pick` to select which files to compare with those in the backup directory:
+```
+$ for i in `pick ch2.*`
+> do
+> 			echo $i
+> 			diff old/$i $i
+> done | pr | lpr
+ch2.1? y
+ch2.2?
+ch2.3?
+ch2.4? y
+ch2.5? y
+ch2.6?
+ch2.7?
+$
+```
+It's obvious that this loop should be placed in a shell file to save typing next time: if you've done something twice, you're likely to do it again.
+
 ### 3.9 `bundle`: Putting it All Together
+
+To give something of the flavor of how shell files develop, let's work through a larger example.
+Pretend you have received mail from a friend on another machine, say `somewhere!bob`, who would like copies of the shell files in your `bin`.
+The simplest way to send them is by return mail, so you could start by typing
+```
+$ cd /usr/you/bin
+$ for i in `pick *`
+> do
+> 			echo ============ This is file $i ============
+>				cat $i
+> done | mail somewhere!bob
+$
+```
+But look at it from `somewhere!bob`'s viewpoint: he's going to get a mail message with all the files clearly demarcated, but he'll need an editor to break them into their component files.
+The flash of insight is that a properly constructed mail message could automatically unpack itself so the recipient needn't do any work.
+This implies that it should be a shell file containing both the files and the instructions to unpack it.
+
+A second insight is that the shell's here documents are a convenient way to combine a command invocation and the data for a command.
+The rest of the job is just getting the quotes right.
+Here's a working program, called `bundle`, that groups the files together into a self-explanatory shell file on it's standard output:
+```
+$ cat bundle
+# bundle:	group files into distribution package
+
+echo 'To unbundle, sh this file'
+for i
+do
+			echo "echo $i 1>&2"
+			echo "cat >$i <<'Endof $i'"
+			cat $i
+			echo "End of $i"
+done
+$
+```
+Quoting `"End of $i"` ensures that any shell metacharacters in the files will be ignored.
+
+Naturally, you should try it out before inflicting it on `somewhere!bob`:
+```
+$ bundle cx lc >junk                        Make a trial bundle
+$ cat junk
+# To unbundle, sh this file
+echo cx 1>&2
+cat >cx <<'End of cx'
+chmod +x $*
+End of cx
+echo lc 1>&2
+cat >lc <<'End of lc'
+# lc: count number of lines in files
+wc -l $*
+End of lc
+$ mkdir test
+$ cd test
+$ sh ../junk                                Try it out
+cx
+lc
+$ ls
+cx
+lc
+$ cat cx
+chmod +x $*
+$ cat lc
+# lc: count number of lines in files
+wc -l $*                                    Looks good
+$ cd ..
+rm junk test/*; rmdir test                  Clean up
+$ pwd
+/usr/you/bin
+$ bundle `pick *` | mail somewhere!bob      Sent the files
+```
+
+There's a problem if one of the files you're sending happens to contain a line of the form
+```
+End of filename
+```
+but it's a low probability event.
+To make `bundle` utterly safe, we need a thing or two from later chapters, but it's eminently usable and convenient as it stands.
+
+`bundle` illustrates much of the flexibility of the UNIX environment: it uses shell loops, I/O redirection, here documents and shell files, it interfaces directly to `mail`, and, perhaps most interesting, it is a program that creates a program.
+It's one of the prettiest shell programs we know -  a few lines of code that do something simple, useful, and elegant.
+
 ### 3.10 Why a Programmable Shell?
+
+The UNIX shell isn't typical of command interpreters: although it lets you run commands in the usual way, because it is a programming language, it can accomplish much more.
+It's worth a brief look back at what we've seen, in part because there's a lot of material in this chapter but more because we promised to talk about "commonly used features" and then wrote about 30 pages of shell programming examples.
+But when using the shell you write little one-line programs all the time: a pipeline is a program, as is our "Tea is ready" example.
+The shell works like that: you program it constantly, but it's so easy and natural (once you're familiar with it) that you don't think of it as programming.
+
+The shell does some things, like looping, I/O redirection with `<` and `>`, and filename expansion with `*`, so that no program need worry about them, and more importantly, so that the application of these facilities is uniform across all programs.
+Other features, such as shell files and pipes, are really provided by the kernel, but the shell gives a natural syntax for creating them.
+They go beyond convenience, to actually increasing the capabilities of the system.
+
+Much of the power and convenience of the shell derives from the UNIX kernel underneath it; for example, although the shell sets up pipes, the kernel actually moves the data through them.
+The way the system treats executable files makes it possible to write shell files so that they are run exactly like compiled programs.
+The user needn't be aware that they are command files - they aren't invoked with a special command like `RUN`.
+Also, the shell is a program itself, not part of the kernel, so it can be tuned, extended, and used like any other program.
+This idea is not unique to the UNIX system, but it has been exploited better there than anywhere else.
+
+In Chapter 5, we'll return to the subject of shell programming, but you should keep in mind that whatever you're doing with the shell, you're programming it - that's largely why it works so well.
 
