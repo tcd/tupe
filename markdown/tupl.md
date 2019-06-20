@@ -86,13 +86,13 @@
 
 ### Terms
 
-| Term                | Definition |
-|---------------------|------------|
-| Filter              |            |
-| Regular Expressions |            |
-| Character Classes   |            |
-| fields              |            |
-| seeking | |
+| Term                | Definition                                                                                  |
+|---------------------|---------------------------------------------------------------------------------------------|
+| Filters             | programs that read some input, perform a simple transformation on it, and write some output |
+| Regular Expressions |                                                                                             |
+| Character Classes   |                                                                                             |
+| fields              |                                                                                             |
+| seeking             |                                                                                             |
 
 
 ### `sed`
