@@ -320,6 +320,10 @@ A newer version exists that starts immediately, so `egrep` and `grep` could now 
 
 ### 4.2 Other filters
 
+The purpose of this section is to alert you to the existence and possibilities of the rich set of small filters provided by the system, and to give a few examples of their use.
+This live is by no means all-inclusive - there are many more that were part of the 7th Edition, and each installation creates some of its own.
+All of the standard ones are described in Section 1 of the manual.
+
 
 
 ### 4.3 The stream editor `sed`
