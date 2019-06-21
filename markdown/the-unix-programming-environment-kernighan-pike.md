@@ -226,7 +226,11 @@ For example, `[][-]` (sic) matches either an opening or closing square bracket o
 
 A period `.` is equivalent to the shell's `?`: it matches any character.
 (The period is probably the character with the most different meanings to different UNIX programs.)
+Here are a couple of examples:
+```
+$ ls -l | grep '^d'
 
+```
 
 
 | character  | meaning                                                     |
