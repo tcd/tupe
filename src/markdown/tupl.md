@@ -92,11 +92,20 @@
 | Character Classes   |                                                                                             |
 | fields              |                                                                                             |
 | seeking             |                                                                                             |
+| associative array   |
 
 
-### `sed`
-
-### `awk`
+### Filters
+- `grep`
+  - `fgrep`
+  - `egrep`
+- `sort`
+- `uniq`
+- `comm`
+- `tr`
+- `dd`
+- `sed`
+- `awk`
 
 
 ## Chapter 5: Shell Programming

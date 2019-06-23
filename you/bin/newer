@@ -1,0 +1,2 @@
+# newer f: list files newer than f
+ -t | sed '/$'$1'$/q'
