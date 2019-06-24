@@ -72,7 +72,7 @@
         - Associative arrays
         - Strings
         - Interaction with the shell
-        - A calendar service based on awk
+        - A calendar service based on `awk`
         - Loose ends
     - 4.5 Good files and good filters
 5. Shell Programming
@@ -1139,9 +1139,262 @@ After the files have been read, the second `for` loop prints, in arbitrary order
 
 #### Strings
 
-Although
+Although both `sed` and `awk` are used for tiny jobs like selecting a single field, only `awk` is used to any extent for tasks that really require programming.
+One example is a program that folds long lines to 80 columns.
+Any line that exceeds 80 characters is broken after the 80th; a `\` is applied as a warning, and the residue is processed.
+The final section of a folded line is right-justified, not left-justified, since this produces more convenient output for program listings, which is what we most often use `fold` for.
+As an example, using 20-character lines instead of 80,
+```
+$ cat test
+A short line.
+A somewhat longer line.
+This line is quite a bit longer than the last one.
+$ fold test
+A short line.
+A somewhat longer li\
+                 ne.
+This line is quite a\
+ bit longer than the\ 
+           last one.
+$
+```
+
+Strangely enough, the 7th Edition provides no program for adding or removing tabs, although `pr` in System V will do both.
+Out implementation of `fold` uses `sed` to convert tabs into spaces so that `awk`'s character count is right.
+This works properly for leading tabs (again typical of program source) but does not preserve columns for tabs in the middle of a line.
+```
+# fold:	fold long lines
+sed 's/	/        /g' $* |  # convert tabs to 8 spaces
+awk '
+BEGIN {
+  N = 80                   # folds at column 80
+  for (i = 1; i<= N; i++)  # making a string of blanks
+    blanks = blanks " "
+}
+{ if ((n = length($0)) <= N)
+    print
+  else {
+    for (i = 1; n > N; n -= N) {
+      printf "%s\\\n", substr($0, i, N)
+      i += N
+    }
+    printf "%s%s\n", substr(blanks, 1, N-n), substr($0, i)
+  }
+} '
+```
+In `awk` there is no explicit string concatenation operator; strings are concatenated when they are adjacent.
+Initially, `blanks` is a null string.
+The loop in the `BEGIN` part creates a long string of blanks by concatenation: each trip around the loop adds one more blank to the end of `blanks`.
+The second loop processes the input line in chunks until the remaining part is short enough.
+As in C, an assignment statement can be used as an expression, so the construction
+```
+if ((n = length($0)) <= N) ...
+```
+assigns the length of the input line to `n` before testing the value.
+Notice the parentheses.
 
 #### Interaction with the shell
-#### A calendar service based on awk
+
+Suppose you want to write a program `field n` that will print the `n`-th field from each line of input, so that you could say, for example,
+```
+$ who | field 1
+```
+to print only the login names.
+`awk` clearly provides the field selection capability; the main problem is passing the field number to `n` in an `awk` program.
+Here is one implementation:
+```
+awk '{ print $'$1' }'
+```
+The `$1` is exposed (it's not inside any quotes) and thus becomes the field number seen by `awk`.
+Another approach uses double quotes:
+```
+awk "{ print \$$1 }"
+```
+In this case, the argument is interpreted by the shell, so the `\$` becomes a `$` and the `$1` is replaced by the value of `n`.
+We prefer the single-quote style because so many extra `\`'s are needed with the double-quote style in a typical `awk` program.
+
+A second example is `addup n`, which adds up the numbers in the `n`-th field:
+```
+awk '{ s+= $'$1' } 
+ END { print s }'
+```
+
+A third example forms separate sums of each of `n` columns, plus a grand total:
+```
+awk '
+BEGIN { n = '$1' }
+{       for (i = 1; i<= n; i++)
+          sum[i] += $i
+}
+END {   for (i = 1; i <= n; i++) {
+          printf "%6g ", sum[i]
+          total += sum[i]
+        }
+        printf "; total = %6g\n", total
+}'
+```
+We use `BEGIN` to insert the value of `n` into a variable, rather than cluttering up the rest of the program with quotes.
+
+The main problem with all of these examples is not keeping track of whether one is inside or outside the quotes (although that is a bother), but that as currently written, such programs can read only their standard input; there is no way to pass them both the parameter `n` and an arbitrarily long list of filenames.
+This requires some shell programming that we'll address in the next chapter.
+
+#### A calendar service based on `awk`
+
+Our final example uses associative arrays; it is also an illustration of how to interact with the shell, and demonstrates a bit about program evolution.
+
+The task is to have the system send you mail every morning that contains a reminder of upcoming events.
+(There may already be such a calendar service, see `calendar`(1). This section shows an alternate approach.)
+The basic service should tell you of events happening today; the second step is to give a day of warning - events of tomorrow as well as today.
+The proper handling of weekends and holidays is left as an exercise.
+
+The first requirement is a place to keep your calendar.
+For that, a file called `calendar` in `/usr/you` seems easiest.
+```
+$ cat calendar
+Sep 30 mother's birthday
+Oct 1  lunch with joe, noon
+Oct 1  meeting 4pm
+$
+```
+
+Second, you need a way to scan the calendar for the date.
+There are many choices here; we will use `awk` because it is best at doing the arithmetic necessary to get from "today" to "tomorrow", but other programs like `sed` or `egrep` can also serve.
+The lines selected from the calendar are shipped off by `mail`, of course.
+
+Third, you need a way to have `calendar` scanned reliably and automatically every day, probably in the morning.
+This can be done with `at`, which we mentioned briefly in Chapter 1.
+
+If we restrict the format of `calendar` so each line begins with a month name and a day as produced by `date`, the first draft of the calendar program is easy:
+```
+$ date
+Thu Sep 29 15:23:12 EDT 1983
+$ cat bin/calendar
+# calendar:  version 1 -- today only
+awk <$HOME/calendar '
+  BEGIN { split("'"`date`"'", date) }
+  $1 == date[2] && $2 == date[3]
+
+' | mail $NAME
+$
+```
+The `BEGIN` block splits the date produced by `date` into an array; the second and third elements of the array are the month and the day.
+We are assuming that the shell variable `NAME` contains your login name.
+
+The remarkable sequence of quote characters is required to capture the date in a string in the middle of the `awk` program.
+An alternative that is easier to understand is to pass the date in as the first line of input:
+```
+$ cat bin/calendar
+# calendar:  version 2 -- today only, no quotes
+(date; cat $HOME/calendar)
+  NR == 1    { mon = $2; day = $3 } # set the date
+  NR > 1 && $1 == mon && $2 == day  # print calendar lines
+' | mail $NAME
+$
+```
+
+The next step is to arrange for `calendar` to look for tomorrow as well as today.
+Most of the time all that is needed is to take today's date and add 1 to the day.
+But at the end of the month, we have to get the next month and set the day back to 1.
+And of course each month has a different number of days.
+
+This is where the associative array comes in handy.
+Two arrays, `days` and `nextmon`, whose subscripts are month names, hold the number of days in the month and the name of the next month.
+Then `days["Jan"]` is `31`, and `nextmon["Jan"]` is `Feb`.
+Rather than create a whole sequence of statements like
+```
+days["Jan"] = 31; nextmon["Jan"] = "Feb"
+days["Feb"] = 28; nextmon["Feb"] = "Mar"
+...
+```
+we will use `split` to convert a convenient data structure into the one really needed:
+```
+$ cat calendar
+# calendar:  version 3 -- today and tomorrow
+awk <$HOME/calendar '
+BEGIN {
+    x = "Jan 31 Feb 28 Mar 31 Apr 30 May 31 Jun 30 " \
+        "Jul 31 Aug 31 Sup 30 Oct 31 Nov 30 Dec 31 Jun 31"
+    split(x, data)
+    for(i = 1; i < 24; i += 2) {
+        days[data[i]] = data[i+1]
+        nextmon[data[i]] = data[i+2]
+    }
+    split("'"`date`"'", date) 
+    mon1 = date[2]; day1 = date[3]
+    mon2 = mon1; day2 = day1 + 1
+    if (day1 >= days[mon1]) {
+        day2 = 1
+        mon2 = nextmon[mon1]
+    }
+}
+$1 == mon1 && $2 == day1 || $1 == mon2 && $2 = day2
+' | mail $NAME
+$
+```
+Notice that `Jan` appears twice in the data; a "sentinel" data value like this simplifies processing for December.
+
+The final stage is to arrange for the calendar program to be run every day.
+What you want is for someone to wake up every morning around 5 AM and run `calendar`.
+You can do this yourself by remembering to say (every day!)
+```
+$ at 5am
+calendar
+ctl-d
+$
+```
+but that's not exactly automatic or reliable.
+The trick is to tell `at` not only to run the calendar, but also to schedule the next run as well.
+```
+$ cat early.morning
+calendar
+echo early.morning | at 5am
+$
+```
+The second line schedules another command for the next day, so once started, this sequence is self-perpetuating.
+The `at` command sets your `PATH` current directory and other parameters for the commands it processes, so you don't need to do anything special.
+
 #### Loose ends
+
+`awk` is an ungainly language, and it's impossible to show all its capabilities in a chapter of reasonable size.
+Here are some other things to look at in the manual:
+- Redirecting the output of `print` into files and pipes:
+  - Any print or `printf` statement can be followed by `>` and a filename (as a quoted string or in a variable); the output will be sent to the file.
+  - As with the shell, `>>` appends instead of overwriting.
+  - Printing into pipes uses `|` instead of `>`.
+- Multi-line records:
+  - If the record separator `RS` is set to newline, then input records will be separated by an empty line.
+  - In this way, several input lines can be treated as a single record.
+- "Pattern, pattern" as a selector:
+  - As in `ed` and `sed`, a range of lines can be specified by a pair of patterns.
+  - This matches lines from an occurrence of the first pattern until the next occurrence of the second.
+  - A simple example is 
+    ```
+    NR == 10, NR == 20
+    ```
+    which matches lines 10 through 20 inclusive.
+
+
 ### 4.5 Good files and good filters
+
+Although the last few `awk` examples are self-contained commands, many uses of `awk` are simple one- or two-line programs to do some filtering as part of a larger pipeline.
+This is true of most filters - sometimes the problem at hand can be solved by the application of a single filter, but more commonly it breaks down into subproblems solvable by filters joined together into a pipeline.
+This use of tools is often cited as the heart of the UNIX programming environment.
+That view is overly restrictive; nevertheless, the use of filters pervades the system, and it is worth observing why it works.
+
+The output produced by UNIX programs is in a format understood as input by other programs.
+Filterable files contain lines of text, free of decorative headers, trailers, or blank lines.
+Each line is an object of interest - a filename, a word, a description of a running process - so programs like `wc` and `grep` can count interesting items or search for them by name.
+When more information is present for each object, the file is still line-by-line, but columnated into fields separated by blanks or tabs, as in the output of `ls -l`.
+Given data divided into such fields, programs like `awk` can easily select, process, or rearrange the information.
+
+Filters share a common design.
+Each writes on its standard output the result of processing the argument files, or the standard input if no arguments are given.
+The arguments specify *input*, never output, so the output of a command can always be fed to a pipeline.
+Optional arguments (or non-filename arguments such as the `grep` pattern) precede any filenames.
+Finally, error messages are written on the standard error, so they will not vanish down a pipe.
+
+These conventions have little effect on individual commands, but when uniformly applied to all programs result in a simplicity of interconnection, illustrated by many examples throughout this book, but perhaps most spectacularly by the word-counting example at the end of Section 4.2.
+If any of the programs demanded a named input or output file, required interaction to specify parameters, or generated headers or trailers, the pipeline wouldn't work.
+And of course, if the UNIX system didn't provide pipes, someone would have to write a conventional program to do the job.
+But there are pipes, and the pipeline works, and is even easy write if you are familiar with the tools.
+
