@@ -114,7 +114,7 @@
 
 | Term | Definition |
 |------|------------|
-|      |            |
+| exit status     | a value returned to the shell to indicate what happened during a program's execution           |
 
 ### `set`
 

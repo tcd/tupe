@@ -363,6 +363,226 @@ $ ls *.c
 would be a nuisance.
 
 ### 5.2 Which command is `which`?
+
+There are problems with making private versions of commands such as `cal`.
+The most obvious is that if you are working with Mary and type `cal` while logged in as `mary`, you will get the standard `cal` instead of the new one, unless of course Mary has linked the new `cal` into her `bin` directory.
+This can be confusing - recall that the error messages from the original `cal` are not very helpful - but is just an example of a general problem.
+Since the shell searches for commands in a set of directories specified by `PATH`, it is always possible to get a version of a command other than the one you expect.
+For instance, if you type a command, say `echo`, the pathname of the file that is actually run could be `./echo` or `/bin/echo` or `/usr/bin/echo` or something else, depending on the components of your `PATH` and where the files are.
+It can be very confusing if there happens to be an executable file with the right name but the wrong behavior earlier in your search path than you expect.
+Perhaps the most common is the `test` command, which we will discuss later: its name is such an obvious one for a temporary version of a program that the wrong `test` program gets called annoyingly often.
+A command that reports which version of a program will be executed would provide a useful service.
+
+One implementation is to loop over the directories in `PATH`, searching each for an executable file of the given name.
+In Chapter 3, we used the `for` to loop over filenames and arguments.
+Here, we want a loop that says
+```
+for i in each component of PATH
+do
+    if given name is in directory i
+        print its full pathname
+done
+```
+Because we can run any command inside backquotes (\`...\`), the obvious solution is to run `sed` over `$PATH`, converting colons into spaces.
+We can test it out with our old friend `echo`:
+```
+$ echo $PATH
+:/usr/you/bin:/bin:/usr/bin
+$ echo $PATH sed 's/:/ /g'
+ /usr/you/bin /bin /usr/bin
+$ echo `echo $PATH 's/:/ /g'`
+/usr/you/bin /bin /usr/bin
+$
+```
+There is clearly a problem.
+A null string in `PATH` is a synonym for `.`.
+Converting the colons in `PATH` to blanks is therefore not good enough - the information about null components will be lost.
+To generate the correct list of directories, we must convert a null component of `PATH` into a dot.
+The null component could be in the middle or at either end of the string, so it takes a little work to catch all the cases:
+```
+$ echo $PATH | sed 's/^:/.:/
+>                   s/::/:.:/g
+>                   s/:$/:./
+>                   s/:/ /g'
+. /usr/you/bin /bin /usr/bin
+$
+```
+We could have written this as four separate `sed` commands, but since `sed` does the substitution in order, one invocation can do it all.
+
+Once we have the directory components of `PATH`, the `test`(1) command we've mentioned can tell us whether a file exists in each directory.
+The `test` command is actually one of the clumsier UNIX programs.
+For example, `test -r file` tests if `file` exists and can be read, and `test -w file` tests if `file` exists and can be written, but the 7th Edition provides no `test -x` (although System V and other versions do) which would otherwise be the one for us.
+We'll have to settle for `test -f`, which tests that the file exists and is not a directory, in other words, is a regular file.
+You should look over the manual page for `test` on your own system, however, since there are several versions in circulation.
+
+Every command returns an *exit status* - a value returned to the shell to indicate what happened.
+The exit status is a small integer; by convention `0` means "true" (the command ran successfully) and non-zero means "false" (the command ran unsuccessfully).
+Note that this is opposite to the values of true and false in C.
+
+Since many different values can all represent "false," the reason for failure is often encoded in the "false" exit status.
+For example, `grep` returns `0` if there was a match, `1` if there was no match, and `2` if there was an error in the pattern or filenames.
+Every program returns a status, although we usually aren't interested in its value.
+`test` is unusual because its *sole* purpose is to return an exit status.
+It produces no output and changes no files.
+
+The shell stores the exit status of the last program in the variable `$?`:
+```
+$ cmp /usr/you/.profile /usr/you/.profile
+                                           No output, they're the same
+$ echo $?
+0                                          Zero implies ran O.K.: files identical
+$ cmp /usr/you/.profile /usr/mary/.profile
+/usr/you/.profile /usr/mary/.profile differ: char 6, line 3
+echo $?
+1                                          Non-zero means files were different
+$
+```
+A few commands, such as `cmp` and `grep`, have an option `-s` that causes them to exit with an appropriate status but suppress all output.
+
+The shell's `if` statement runs commands based on the exit status of a command, as in
+```
+if command
+then
+    commands if condition true
+else
+    commands if condition false
+fi
+```
+The location of the newlines is important: `fi`, `then`, and `else` are recognized only after a newline or a semicolon.
+The `else` part is optional.
+
+The `if` statement always runs a command - the condition - whereas the `case` statement does pattern matching directly in the shell.
+In some UNIX versions, including System V, `test` is a shell built-in function so an `if` and a `test` will run as fast as a `case`.
+If `test` isn't built in, `case` statements are more efficient than `if` statements, and should be used for any pattern matching:
+```
+case "$1" in
+hello)    command
+esac
+```
+will be faster than
+```
+if test "$1" = hello     Slower unless test is a shell built-in
+then
+          command
+fi
+```
+That is one reason why we sometimes use `case` statements in the shell for testing things that would be done with an `if` statement in most programming languages.
+A `case` statement, on the other hand, can't easily determine whether a file has read permissions; that is better done with a `test` and an `if`.
+
+So now the pieces are in place for the first version of the command `which`, to report which file corresponds to a command:
+```
+$ cat which
+# which cmd:	which cmd in PATH is executed, version 1
+
+case $# in
+0)    echo 'Usage: which command' 1>&2; exit 2
+esac
+for i in `echo $PATH | sed 's/^:/.:/
+                            s/::/:.:/g
+                            s/:$/:./
+                            s/:/ /g'`
+do
+    if test -f $i/$1        # use test -x if you can
+    then
+        echo $i/$1
+        exit 0              # found it
+    fi
+done
+exit 1                      # not found
+$
+```
+Let's test it:
+```
+$ cx which               Make it executable
+$ which which
+./which
+$ which ed
+/bin/ed
+$ mv which /usr/you/bin
+$ which which
+/usr/you/bin/which
+$
+```
+The initial `case` statement is just error-checking.
+Notice the redirection `1>&2` on the `echo` so the error message doesn't vanish down a pipe.
+The shell built-in command `exit` can be used to return an exit status.
+We wrote `exit 2 ` to return an error status if the command didn't work, `exit 1` if it couldn't find the file, and `exit 0` if it found one.
+If there is no explicit `exit` statement, the exit status from a shell file is the status of the last command executed.
+
+What happens if you have a program called `test` in the current directory?
+(We're assuming that `test` is not a shell built-in.)
+```
+$ wcho `echo hello` >test          Make a fake test
+$ cx test                          Make it executable
+$ which which                      Try which now
+hello                              Fails!
+./which
+$
+```
+More error-checking is called for.
+You could run `which` (if there weren't a `test` in the current directory!) to find out the full pathname for `test`, and specify it explicitly.
+But that is unsatisfactory: `test` may be in different directories on different systems, and `which` also depends on `sed` and `echo`, so we should specify their pathnames too.
+There is a simpler solution: fix `PATH` in the shell file, so it only looks in `/bin` and `/usr/bin` for commands.
+Of course, for the `which` command only, you have to save the old `PATH` for determining the sequence of directories to be searched.
+
+```
+$ cat which
+# which cmd:	which cmd in PATH is executed, final version
+
+opath=$PATH
+PATH=/bin:/usr/bin
+
+case $# in
+0)    echo 'Usage: which command' 1>&2; exit 2
+esac
+
+for i in `echo $opath | sed 's/^:/.:/
+                             s/::/:.:/g
+                             s/:$/:./
+                             s/:/ /g'`
+do
+    if test -f $i/$1        # this is /bin/test
+    then                    # or /usr/bin/test only
+        echo $i/$1
+        exit 0              # found it
+    fi
+done
+exit 1                      # not found
+$
+```
+`which` now works even if there is a spurious `test` (or `sed` or `echo`) along the search path.
+```
+$ ls -l test
+-rwxrwxrwx 1 you			11 Oct	1 06:55	test
+$ which which
+/usr/you/bin/which
+$ which test
+./test
+$ rm test
+$ which test
+/bin/test
+$
+```
+
+The shell provides two other operators for combining commands, `||` and `&&`, that are often more compact and convenient than the `if` statement.
+For example, `||` can replace some `if` statements:
+```
+test -f filename || echo file filename doesnot exist
+```
+is equivalent to
+```
+if test ! -f filename
+then
+    echo file filename does not exist
+fi
+```
+The operator `||`, despite appearances, has nothing to do with pipes - it is a conditional operator meaning `OR`.
+The command to the left of `||` is executed.
+If its exit status is zero (success), the command to the right of `||` is ignored.
+If the left side returns non-zero (failure), the right side is executed and the value of the entire expression is the exit status of the right side.
+In other words, `||` is a left conditional `OR` operator that does not execute its right-hand command if the left one succeeds.
+The corresponding `&&` conditional is `AND`; it executes its right-hand command only if the left one succeeds.
+
 ### 5.3 `while` and `until` loops: watching for things
 ### 5.4 Traps: catching interrupts
 ### 5.5 Replacing a file: `overwrite`
