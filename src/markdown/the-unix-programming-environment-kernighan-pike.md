@@ -584,10 +584,695 @@ In other words, `||` is a left conditional `OR` operator that does not execute i
 The corresponding `&&` conditional is `AND`; it executes its right-hand command only if the left one succeeds.
 
 ### 5.3 `while` and `until` loops: watching for things
+
+In Chapter 3, the `for` loop was used for a number of simple iterative programs.
+Usually, a `for` loops over a set of filenames, as in `for i in *.c`, or all the arguments to a shell program, as in `for i in $*`.
+But shell loops are more general than these idioms would suggest; consider the `for` loop in `which`.
+
+There are three loops: `for`, `while`, and `until`.
+The `for` is by far the most commonly used.
+It executes a set of commands - the loop body - once for each element in a set of words.
+Most often these are just filenames.
+The `while` and `until` use the exit status from a command to control the execution of the commands in the body of the loop.
+The loop body is executed until the condition command returns a non-zero status (for the `while`) or zero (for the `until`).
+`while` and `until` are identical except for the interpretation of the exit status of the command.
+
+Here are the basic forms of each loop:
+```
+for i in list of words
+do
+    loop body, $i is set to successive elements of list
+done
+
+for i          (List is implicitly all arguments to shell file, i.e., $*)
+do
+    loop body, $i is set to successive arguments
+done
+
+
+while command
+do
+    loop body executed as long as command returns true
+done
+
+
+until command
+do
+    loop body executed as long as command returns false
+done
+```
+The second form of the `for`, in which an empty list implies `$*`, is a convenient shorthand for the most common usage.
+
+The conditional command that controls a `while` or `until` can be any command.
+As a trivial example, here is a `while` loop to watch for someone (say Mary) to log in:
+```
+while sleep 60
+do
+    who | grep mary
+done
+```
+The `sleep`, which pauses for 60 seconds, will always execute normally (unless interrupted) and therefore return "success", so the loop will check once a minute to see if Mary has logged in.
+
+This version has the disadvantage that if Mary is already logged in, you must wait 60 seconds to find out.
+Also, if Mary stays logged in, you will be told about her once a minute.
+The loop can be turned inside out and written with an `until`, to provide the information once, without delay, if Mary is on now:
+```
+until who | grep mary
+do
+    sleep 60
+done
+```
+This is a more interesting condition.
+If Mary is logged in, `who | grep mary` prints out her entry in the `who` listing and returns "true", because `grep` returns a status to indicate whether it found something, and the exit status of a pipeline is the exit status of the last element.
+
+Finally, we can wrap up this command, give it a name and install it:
+```
+$ cat watchfor
+# watchfor:	watch for someone to log in
+
+PATH=/bin:/usr/bin
+
+case $# in
+0)		echo 'Usage: watchfor person' 1>&2; exit 1
+esac
+
+until who | egrep "$1"
+do
+    sleep 60
+done
+$ cx watchfor
+$ watchfor you
+you			tty0		Oct	1 08:01        It works
+$ mv watchfor /usr/you/bin         Install it
+$
+```
+We changed `grep` to `egrep` so you can type
+```
+$ watchfor 'joe|mary'
+```
+to watch for more than one person.
+
+As a more complicated example, we could watch *all* people logging in and out, and report as people come and go - a sort of incremental `who`.
+The basic structure is simple: once a minute, run `who`, compare its output to that from a minute ago, and report any differences.
+The `who` output will be kept in a file, so we will store it in the directory `/tmp`.
+To distinguish our files from those belonging to other processes, the shell variable `$$` (the process id of the shell command), is incorporated into the filenames; this is a common convention.
+Encoding the command name in the temporary files is done mostly for the system administrator.
+Commands (including this version of `watchwho`) often leave files lying around in `/tmp`, and its nice to know which command is doing it.
+
+```
+$ cat watchwho
+# watchwho:	watch who logs in and out
+
+PATH=/bin:/usr/bin
+new=/tmp/wwho1.$$
+old=/tmp/wwho2.$$
+>$old           # create an empty file
+
+while :         # loop forever
+do
+    who >$new
+    diff $old $new
+    mv $new $old
+    sleep 60
+done | awk '/>/ { $1 = "in:     "; print }
+            /</ { $1 = "out:    "; print }'
+$
+```
+`:` is a shell built-in command that does nothing but evaluate its arguments and return "true."
+Instead, we could have used the command `true`, which merely returns a true exit status.
+(There is also a `false` command.)
+But `:` is more efficient than `true` because it does not execute a command from the file system.
+
+`diff` output uses `<` and `>` to distinguish data from the two files; the `awk` program processes this to report the changes in an easier-to-understand format.
+Notice that the entire `while` loop is piped into `awk`, rather than running a fresh `awk` once a minute.
+`sed` is unsuitable for this processing, because its output is always behind its input by one line: there is always a line of input that has been processed but not printed, and this would introduce an unwanted delay.
+
+Because `old` is created empty, the first output from `watchwho` is a list of all users currently logged in.
+Changing the command that initially creates `old` to `who>$old` will  cause `watchwho` to print only the changes; it's a matter of taste.
+
+Another looping program is one that watches your mailbox periodically; whenever the mailbox changes, the program prints `"You have mail."`
+This is a useful alternative to the shell's built-in mechanism using the variable `MAIL`.
+We have implemented it with shell variables instead of files, to illustrate a different way of doing things.
+
+```
+$ cat checkmail
+# checkmail:	watch mailbox for growth
+
+PATH=/bin:/usr/bin
+MAIL=/usr/spool/mail/`getname`  # system dependent
+
+t=${1-60}
+
+x="`ls -l $MAIL`"
+while :
+do
+    y="`ls -l $MAIL`"
+    echo $x $y
+    x="$y"
+    sleep $t
+done | awk '$4 < $12 { print "You have mail" }'
+$
+```
+We have used `awk` again, this time to ensure that the message is printed only when the mailbox grows, not merely when it changes.
+Otherwise, you'll get a message right after you delete mail.
+(The shell's built-in version suffers from this drawback.)
+
+The time interval is normally set to 60 seconds, but if there is a parameter on the command line, as in
+```
+$ checkmail 30
+```
+that is used instead.
+The shell variable `t` is set to the time if one is supplied, and to `60` if no value was given, by the line
+```bash
+t=${1-60}
+```
+This introduces another feature of the shell.
+
+`${var}` is equivalent to `$var`, and can be used to avoid problems with variables inside strings containing letters or numbers:
+```
+$ var=hello
+$ varx=goodbye
+$ echo $var
+hello
+$ echo $varx
+goodbye
+$ echo ${var}x
+hellox
+$
+```
+Certain characters inside braces specify special processing of the variable.
+If the variable is undefined, and the name is followed by a question mark, then the string after the `?` is printed and the shell exits (unless it's interactive).
+If the message is not provided, a standard one is printed:
+```
+$ echo ${var?}
+hello                        O.K.; var is set
+$ echo ${junk?}
+junk: parameter not set      Default message
+$ echo ${junk?error!}
+junk: error!                 Message provided
+$
+```
+Note that the message generated by the shell always contains the name of the undefined variable.
+
+Another form is `${var-thing}` which evaluates to `$var` if it is defined, and `thing` if it is not.
+`${var=thing}` is similar, but also sets `$var` to `thing`:
+```
+$ echo ${junk-'Hi there'}
+Hi there
+$ echo ${junk?}
+junk: parameter not set
+$ echo ${junk='Hi there'}
+Hi there
+$ echo ${junk?}
+Hi there
+$
+```
+The rules for evaluating variables are given in Table 5.3.
+
+Returning to our original example,
+```bash
+t=${1-60}
+```
+sets `t` to `$1`, or if no argument is provided, to `60`.
+
+| example          | description                                                                                                                |
+|------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `$var`           | value of `var`; nothing if `var` undefined                                                                                 |
+| `${var}`         | same; useful if alphanumerics follow variable name                                                                         |
+| `${var-thing}`   | value of `var` if defined; otherwise `thing`. <br/> `$var` unchanged                                                       |
+| `${var=thing}`   | value of `var` if defined; otherwise `thing`. <br/> If undefined, `$var` set to `thing`.                                   |
+| `${var?message}` | if defined, `$var`. Otherwise print `message` and exit shell. <br/> If `message` is empty, print: `var: parameter not set` |
+| `${var+thing}`   | `thing` if `$var` defined, otherwise nothing                                                                               |
+
 ### 5.4 Traps: catching interrupts
+
+If you type DEL or hang up the phone while `watchwho` is running, one or two temporary files are left in `/tmp`.
+`watchwho` should remove the temporary files before it exits.
+We need a way to detect when such events happen, and a way to recover.
+
+When you type DEL, an *interrupt signal* is sent to all the processes that you are running on the terminal.
+Similarly, when you hang up, a *hangup signal* is sent.
+There are other signals as well.
+Unless a program has taken explicit action to deal with signals, the signal will terminate it.
+The shell protects programs run with `&` from interrupts but not from hangups.
+
+Chapter 7 discusses signals in detail, but you needn't know much to be able to handle them in a shell.
+The shell built-in command `trap` sets up a sequence of commands to be executed when a signal occurs:
+```
+trap sequence-of-commands list of signal numbers
+```
+The `sequence-of-commands` is a single argument, so it must almost always be the quoted.
+The *signal numbers* are small integers that identify the signal.
+For example, `2` is the signal generated by the DEL key, and `1` is generated by hanging up the phone.
+The signal numbers most often useful to shell programmers are listed in Table 5.4.
+
+| number | description                                          |
+|--------|------------------------------------------------------|
+| `0`    | shell exit (for any reason, including end of file)   |
+| `1`    | hangup                                               |
+| `2`    | interrupt (DEL key)                                  |
+| `3`    | quit (`ctl-\` causes program to produce a core dump) |
+| `9`    | kill (cannot be caught or ignored)                   |
+| `15`   | terminate, default signal generated by `kill`(1)     |
+
+So to clean up the temporary files in `watchwho`, a `trap` call should go just before the loop, to catch hangup, interrupt, and terminate:
+```bash
+...
+trap 'rm -f $new $old; exit 1' 1 2 15
+
+while :
+...
+```
+The command sequence that forms the first argument to `trap` is like a subroutine call that occurs immediately when the signal happens.
+When it finishes, the program that was running will resume where it was unless the signal killed it.
+Therefore, the `trap` command sequence must explicitly invoke `exit`, or the shell program will continue to execute after the interrupt.
+Also, the command sequence will be read twice: once when the `trap` is set and once when it is invoked.
+Therefore, the command sequence is best protected with single quotes, so variables are evaluated only when the `trap` routines are executed.
+It makes no difference in this case, but we will see one later in which it matters.
+By the way, the `-f` option tells `rm` not to ask questions.
+
+`trap` is sometimes useful interactively, most often to prevent a program from being killed by the hangup signal generated by a broken phone connection:
+```
+$ (trap '' 1; long-running-command) &
+2134
+$
+```
+the null command sequence means "ignore interrupts" in this process and its children.
+The parentheses cause the `trap` command to be run together in a background sub-shell; without them, the `trap` would apply to the login shell as well as to `long-running-command`.
+
+The `nohup`(1) command is a short shell program to provide this service.
+Here is the 7th Edition version, in its entirety:
+```
+$ cat `which nohup`
+trap "" 1 15
+if test -t 2>&1
+then
+    echo "Sending output to 'nohup.out'"
+    exec nice -5 $* >>nohup.out 2>&1
+else
+    exec nice -5 $* 2>&1
+fi
+```
+`test -t` tests whether the standard output is a terminal, to see if the output should be saved.
+The background program is run with `nice` to give it a lower priority than interactive programs.
+(Notice that `nohup` doesn't set `PATH`. Should it?)
+
+The `exec` is just for efficiency; the command would run just as well without it.
+`exec` is a shell built-in that replaces the process running this shell by the named program, thereby saving one process - the shell would normally wait for the program to complete.
+We could have used `exec` in several other places, such as at the end of the enhanced `cal` program when it invokes `/usr/bin/cal`.
+
+By the way, the signal `9` is one that can't be caught or ignored: it always kills.
+From the shell, it is send as
+```
+$ kill -9 process-id
+```
+`kill -9` is not the default because a process killed that way is given no change to put its affairs in order before dying.
+
 ### 5.5 Replacing a file: `overwrite`
+
+The `sort` command has an option `-o` to overwrite a file:
+```
+$ sort file1 -o file2
+```
+is equivalent to
+```
+$ sort file1 >file2
+```
+If `file1` and `file2` are the same file, redirection with `>` will truncate the input file before it is sorted.
+The `-o` option, however, works correctly, because the input is sorted and saved in a temporary file before the output file is created.
+
+Many other commands could also use a `-o` option.
+For example, `sed` could edit a file in place:
+```
+$ sed 's/UNIX/UNIX(TM)/g' ch2 -o ch2         Doesn't work this way!
+```
+It would be impractical to modify all such commands to add the option.
+Furthermore, it would be bad design: it is better to centralize functions, as the shell does with the `>` operator.
+We will provide a program `overwrite` to do the job.
+The first design is like this:
+```
+$ sed 's/UNIX/UNIX(TM)/g' ch2 | overwrite ch2
+```
+
+The basic implementation is straightforward - just save away the input until end of file, then copy the data to the argument file:
+```bash
+# overwrite:	copy standard input to output after EOF
+# version 1.  BUG here
+
+PATH=/bin:/usr/bin
+
+case $# in
+1)    ;;
+*)    echo 'Usage: overwrite file' 1>&2; exit 2
+esac
+
+new=/tmp/overwr.$$
+trap 'rm -f $new; exit 1' 1 2 15
+
+cat >$new                # collect the input
+cp $new $1               # overwrite the input file
+rm -f $new
+```
+`cp` is used instead of `mv` so the permissions and owner of the output file aren't changed if it already exists.
+
+Appealingly simple as this version is, it has a fatal flaw: if the user types DEL during the `cp`, the original input file will be ruined.
+We must prevent an interrupt from stopping the overwriting of the input file:
+```bash
+# overwrite:	copy standard input to output after EOF
+# version 2.  BUG here too
+
+PATH=/bin:/usr/bin
+
+case $# in
+1)    ;;
+*)    echo 'Usage: overwrite file' 1>&2; exit 2
+esac
+
+new=/tmp/overwr1.$$
+new=/tmp/overwr2.$$
+trap 'rm -f $new $old; exit 1' 1 2 15
+
+cat >$new                # collect the input
+cp $1 $old               # save original file
+
+trap '' 1 2 15           # we are committed; ignore signals
+cp $new $1               # overwrite the input file
+
+rm -f $new $old
+```
+If a DEL happens before the original file is touched, then the temporary files are removed and the file is left alone.
+After the backup is made, signals are ignored so the last `cp` won't be interrupted - once the `cp` starts, `overwrite` is committed to changing the original file.
+
+There is still a subtle problem. Consider:
+```
+$ sed 's/UNIX/UNIX(TM)g' precious | overwrite precious
+command garbled: s/UNIX/UNIX(TM)g
+$ ls -l precious
+-rw-rw-rw-	1	you			0 Oct	1	09:02	precious		#$%@*!
+$
+```
+If the program providing input to `overwrite` gets an error, its output will be empty and `overwrite` will dutifully and reliably destroy the argument file.
+
+A number of solutions are possible.
+`overwrite` could ask for confirmation before replacing the file, but making `overwrite` interactive would negate much of its merit.
+`overwrite` could check that its input is non-empty (by `test -z`), but that is ugly and not right either: some output might be generated before an error is detected.
+
+The best solution is to run the data-generating program under `overwrite`'s control so its exit status can be checked.
+This is against tradition and intuition -  in a pipeline, `overwrite` produces nothing on its standard output, however, so no generality is lost.
+And its syntax isn't unheard of: `time`, `nice`, and `nohup` are all commands that take another command as arguments.
+
+Here is the safe version:
+```bash
+# overwrite:	copy standard input to output after EOF
+# final version
+
+opath=$PATH
+PATH=/bin:/usr/bin
+
+case $# in
+0|1)    echo 'Usage: overwrite file cmd [args]' 1>&2; exit 2
+esac
+
+file=$1; shift
+new=/tmp/overwr1.$$
+old=/tmp/overwr2.$$
+trap 'rm -f $new $old; exit 1' 1 2 15  # clean up files
+
+if PATH=$opath "$@" >$new              # collect input
+then
+    cp $file $old   # save original file
+    trap '' 1 2 15  # we are committed; ignore signals
+    cp $new $file
+else
+    echo "overwrite: $1 failed, $file unchanged" 1>&2
+fi
+rm -f $new $old
+```
+
+The shell built-in command `shift` moves the entire argument list one position to the left: `$2` becomes `$1`, `$3` becomes `$2`, etc.
+`"$@"` provides all the arguments (after the `shift`), like `$*`, but uninterpreted; we'll come back to it in Section 5.7.
+
+Notice that `PATH` is restored to run the user's command; if it weren't, commands that were not in `/bin` or `/usr/bin` would be inaccessable to `overwrite`.
+
+`overwrite` now works (if somewhat clumsily):
+```
+$ cat notice
+UNIX is a Trademark of Bell Laboratories
+$ overwrite notice sed 's/UNIXUNIX(TM)/g' notice
+command garbled: s/UNIXUNIX(TM)/g
+overwrote: sed failed, notice unchanged
+$ cat notice
+UNIX is a Trademark of Bell Laboratories
+$ overwrite notice sed 's/UNIX/UNIX(TM)/g' notice
+$ cat notice
+UNIX(TM) is a Trademark of Bell Laboratories
+$
+```
+
+Using `sed` to replace all occurrences of one word with another is a common thing to do.
+With `overwrite` in hand, a shell file to automate the task is easy:
+```
+$ cat replace
+# replace: replace str1 in files with str2, in place
+
+PATH=/bin:/usr/bin
+
+case $# in
+0|1|2) echo 'Usage: replace str1 str2 files' 1>&2; exit 1
+esac
+
+left="$1"; right="$2"; shift; shift
+
+for i
+do
+    overwrite $i sed "s@$left@$right@g" $i
+done
+$ cat footnote
+UNIX is not an acronym
+$ replace UNIX Unix footnote
+$ cat footnote
+Unix is not an acronym
+$
+```
+(Recall that if the list on a `for` statement is empty, it defaults to `$*`.)
+We used `@` instead of `/` to delimit the substitute command, since `@` is somewhat less likely to conflict with an input string.
+
+`replace` sets `PATH` to `/bin:/usr/bin`, excluding `$HOME/bin`.
+This means that `overwrite` must be in `/usr/bin` for `replace` to work.
+We made this assumption for simplicity; if you can't install `overwrite` in `/usr/bin`, you will have to put `$HOME/bin` in `PATH` inside `replace`, or five `overwrite`'s pathname explicitly.
+From now on, we will assume that the commands we are writing reside in `/usr/bin`; they are meant to.
+
 ### 5.6 `zap`: killing processes by name
+
+The `kill` command only terminates processes specified by process-id.
+When a specific background process needs to be killed, you must usually run `ps` to find the process-id and then laboriously re-type it as an argument to `kill`.
+But it's silly to have one program print a number that you immediately transcribe manually to another.
+Why not write a program, say `zap`, to automate the job?
+
+One reason is that killing a process is dangerous, and care must be taken to kill the right process.
+A safeguard is always to run `zap` interactively, and use `pick` to select the victims.
+
+A quick reminder about `pick`: it prints each of its arguments in turn and asks the user for a response; if the response is `y`, the argument is printed.
+(`pick` is the subject of the next section.)
+`zap` uses `pick` to verify that the processes chosen by name are the ones the user wants to kill:
+```
+$ cat zap
+# zap pattern:	kill all processes matching pattern
+# BUG in this version
+
+PATH=/bin:/usr/bin
+
+case $# in
+0)    echo 'Usage: zap pattern' 1>&2; exit 1
+esac
+
+kill `pick \`ps -ag | grep "$*"\` | awk '{print $1}'`
+$
+```
+Note the nested backquotes, protected by backslashes.
+The `awk` program selects the process-id from the `ps` output selected by the `pick`:
+```
+$ sleep 1000 &
+22126
+$ ps -ag
+PID   TTY TIME CMD
+...
+22126 0   0:00 sleep 1000
+...
+$ zap sleep
+22126
+0? q                       What's going on?
+$
+```
+
+The problem is that the output of `ps` is being broken into words, which are seen by `pick` as individual arguments rather than being processed a line at a time.
+The shell's normal behavior is to break strings into arguments at blank/non-blank boundries, as in
+```bash
+for i in 1 2 3 4 5
+```
+In this program we must control the shell's division of strings into arguments, so that only newlines separate adjacent "words."
+
+The shell variable `IFS` (internal field separator) is a string of characters that separate words in argument lists such as backquotes and `for` statements.
+Normally, `IFS` contains a blank, a tab, and a newline, but we can change it to anything useful such as just a newline:
+```
+$ echo 'echo $#' >nargs
+$ cs nargs
+$ who
+you		tty0		Oct	1 05:59
+pjw		tty2		Oct	1 11:26
+$ nargs `who`
+10                           Ten blank and newline-separated fields
+$ IFS='
+'                            Just a newline
+$ nargs `who`
+2                            Two lines, two fields
+$
+```
+With `IFS` set to newline, `zap` works fine:
+```
+$ cat zap
+# zap pat:	kill all processes matching pat
+# final version
+
+PATH=/bin:/usr/bin
+IFS='
+'
+
+case $1 in
+"")    echo 'Usage: zap [-2] pattern' 1>&2; exit 1 ;;
+-*)    SIG=$1; shift
+esac
+
+echo '  PID TTY           TIME CMD'
+kill $SIG `pick \`ps -ag | egrep "$*"\` | awk '{print $1}'`
+$ ps -ag
+  PID TTY TIME CMD
+...
+22126 0   0:00 sleep 1000
+...
+$ zap sleep
+  PID TTY TIME CMD
+22126 0   0:00 sleep 1000? y
+23104 0   0:02 egrep sleep? n
+$
+```
+
+We added a couple of wrinkles: an optional argument to specify the signal (note that `SIG` will be undefined, and therefore treated as a null string if the argument is not supplied) and the use of `egrep` instead of `grep` to permit more complicated patterns such as 'sleep|date'.
+An initial `echo` prints out the column headers for the `ps` output.
+
+You might wonder why this command is called `zap` instead of just `kill`.
+The main reason is that, unlike our `cal` example, we aren't really providing a new `kill` command: `zap` is necessarily interactive, for one thing - and we want to retain `kill` for the real one.
+`zap` is also annoyingly slow - the overhead of all the extra programs is appreciable, although `ps` (which must be run anyway) is the most expensive.
+In the next chapter we will provide a more efficient implementation.
+
 ### 5.7 The `pick` command: blanks vs. arguments
+
+We've encountered most of what we need to write a `pick` command in the shell.
+The only new thing needed is a mechanism to read the user's input.
+The shell built-in `read` reads one line of text from the standard input and assigns the text (without the newline) as the value of the named variable:
+```
+$ read greeting
+hello, world             Type new value for greeting
+$ echo $greeting
+hello, world
+$
+```
+The most common use of `read` is in `.profile` to set up the environment when logging in, primarily to set shell variables like `TERM`.
+
+`read` can only read from the standard input; it can't even be redirected.
+None of the shell built-in commands (as opposed to the control flow primitives like `for`) can be redirected with `>` or `<`:
+```
+$ read greeting </etc/passwd
+goodbye                       Must type a value anyway
+illegal io                    Now shell reports error
+$ echo $ greeting
+goodbye                       greeting has typed value, not one from file
+$
+```
+This might be described as a bug in the shell, but it is a fact of life.
+Fortunately, it can usually be circumvented by redirecting the loop surrounding the `read`.
+This is the key to our implementation of the `pick` command:
+```bash
+# pick:	select arguments
+
+PATH=/bin:/usr/bin
+
+for i
+do
+    echo -n "$i? " >/dev/tty
+    read response
+    case $response in
+    [yY]*)    echo $i ;;
+    q*)       break
+    esac
+done </dev/tty
+```
+`echo -n` suppresses the final newline, so the response can be typed on the same line as the prompt.
+And, of course, the prompts are printed on `/dev/tty` because the standard output is almost certainly not the terminal.
+
+The `break` statement is borrowed from C: ti terminates the innermost enclosing loop.
+In this case it breaks out of the `for` loop when a `q` is typed.
+We let `q` terminate selection because it's easy to do, potentially convenient, and consistent with other programs.
+
+It's interesting to play with blanks in the arguments to `pick`:
+```
+$ pick '1 2' 3
+1 2?
+3?
+$
+```
+If you want to see how `pick` is reading its arguments, run it and just press RETURN after each prompt.
+It's working fine as it stands: `for i` handles the arguments properly.
+We could have written the loop in other ways:
+```
+$ grep for pick          See what this version does
+for i in $*
+$ pick '1 2' 3
+1?
+2?
+3?
+$
+```
+This form doesn't work, because the operands of the loop are rescanned, and the blank in the first argument cause it to become two arguments.
+Try quoting the `$*`:
+```
+$ grep for pick          Try a different version
+for i in "$*"
+$ pick '1 2' 3
+1 2 3?
+$
+```
+This doesn't work either, because `"$*"` is a single word formed from all the arguments joined together, separated by blanks.
+
+Of course there is a solution, but it is almost black magic: the string `"$@"` is treated specially by the shell, and converted into exactly the arguments to the shell file:
+```
+$ grep for pick          Try a third version
+for i in "$@"
+$ pick '1 2' 3
+1 2?
+3?
+$
+```
+If `$@` is not quoted, it is identical to `$*`; the behavior is special only when it is enclosed in double quotes.
+We used `overwrite` to preserve the arguments to the user's command.
+
+In summary, here are the rules:
+- `$*` and `$@` expand into the arguments, and are rescanned; blanks in arguments will result in multiple arguments.
+- `"$*"` is a single word composed of all the arguments to the shell file joined together with spaces.
+- `"$@"` is identical to the arguments received by the shell file: blanks in arguments are ignored, and the result is a list of words identical to the original arguments.
+
+If `pick` has no arguments, it should probably read its standard input, so we could say
+```
+$ pick <mailinglist
+```
+instead of
+```
+$ pick `cat mailinglist`
+```
+But we won't investigate this version of `pick`: it involves some ugly complications and is significantly harder than the same program written in C, which we will present in the next chapter.
+
+The first two of the following exercises are difficult, but educational to the advanced shell programmer.
+
 ### 5.8 The `news` command: community service messages
 ### 5.9 `get` and `put`: tracking file changes
 ### 5.10 A look back

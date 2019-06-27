@@ -112,9 +112,12 @@
 
 ### Terms
 
-| Term | Definition |
-|------|------------|
-| exit status     | a value returned to the shell to indicate what happened during a program's execution           |
+| Term             | Definition                                                                           |
+|------------------|--------------------------------------------------------------------------------------|
+| exit status      | a value returned to the shell to indicate what happened during a program's execution |
+| interrupt signal |
+| hangup signal    |
+| signal numbers   |
 
 ### `set`
 
