@@ -1274,5 +1274,152 @@ But we won't investigate this version of `pick`: it involves some ugly complicat
 The first two of the following exercises are difficult, but educational to the advanced shell programmer.
 
 ### 5.8 The `news` command: community service messages
+
+In Chapter 1 we mentioned that your system might have a `news` command to report messages of general interest to the user community.
+Although the name and details of the command differ, most systems provide a news service.
+One reason for presenting a `news` command is not to replace your local command, but to show how easily such a program can be written in the shell.
+It might be interesting to compare the implementation of our `news` command to your local version.
+
+The basic idea of such programs is usually that individual news items are stored, one per file, in a special directory like `/usr/news`.
+`news` (that is, our `news` program) operates by comparing the modification times of the files in `/usr/news` with that of a file in your home directory (`.news_time`) that serves as a time stamp.
+For debugging, we can use `.` as the directory for both the news files and `.news_time`; it can be changed to `/usr/news` when the program is ready for general use.
+
+```
+$ cat news
+# news:  print news files, version 1
+
+HOME=.                   # debugging only
+cd .                     # place holder for /usr/news
+for i in `ls -t * $HOME/.news_time`
+do
+    case $i in
+    */.news_time) break ;;
+    *)            echo news: $i
+    esac
+done
+touch $HOME/.news_time
+$ touch .news_time
+$ touch x
+$ touch y
+news: x
+news: y
+$
+```
+`touch` changes the last-modified time of its argument file to the present time, without actually modifying the file.
+For debugging, we can just echo the names of the news files, rather than printing them.
+The loop terminates when it discovers `.news_time`, thereby listing only those files that are newer.
+Note that the `$*` in case statements can match a `/`, which it cannot in filename patterns.
+
+What happens if `.news_time` doesn't exist?
+```
+$ rm .news_time
+$ news
+$
+```
+This silence is unexpected, and wrong.
+It happens because if `ls` can't find a file, it reports the problem on its standard output, before printing any information about existing files.
+This is undeniably a bug - the diagnostic should be printed on the standard error -  but we can get around it by recognizing the problem in the loop and redirecting standard error to standard output so all versions work the same.
+(This problem has been fixed in newer versions of the system, but we've left it as is to illustrate how you can often cope with minor botches.)
+```
+$ cat news
+# news: print news files, version 2
+
+HOME=.                   # debugging only
+cd .                     # place holder for /usr/news
+for i in `ls -t * $HOME/.news_time 2>&1`
+do
+    case $i in
+    *' not found' ;;
+    */.news_time) break ;;
+    *)            echo news: $i
+    esac
+done
+touch $HOME/.news_time
+$ rm .news_time
+$ news
+news: news
+news: y
+news: x
+$
+```
+We must set `IFS` to newline so the message
+```
+./.news_time not found
+```
+is not parsed as three words.
+
+`news` must next print the news files, rather than echoing their names.
+It's useful to know who posted a message and when, so we use the `set` command and `ls -l` to print a header before the message itself:
+```
+$ ls -l news
+-rwxrwxrwx 1 you			208 Oct	1 12:05 news
+$ set X`ls -l news` 
+-rwxrwxrwx: bad option(s)                   Something is wrong!
+$
+```
+Here is one example where the interchangeability of program and data in the shell gets in the way.
+`set` complains because its argument (`"-rwxrwxrwx"`) begins with a minus sign and thus looks like an option.
+An easy (if inelegant) fix is to prefix the argument by an ordinary character:
+```
+$ set X`ls -l news`
+$ echo "news: ($3) $5 $6 $7"
+news: (you) Oct 1 12:05
+$
+```
+That is a reasonable format, showing the author and date of the message along with the filename.
+
+Here is the final version of the `news` command:
+```bash
+# news:  print news files, final version
+
+PATH=/bin:/usr/bin
+IFS='
+'                   # just a newline
+cd /usr/news
+
+for i in `ls -t * $HOME/.news_time 2>&1`
+do 
+    IFS=' '
+    case $i in
+    *' not found')  ;;
+    */.news_time)   break ;;
+    *)              set X`ls -l $i`
+                    echo "
+$i: ($3) $5 $6 $7
+"
+                    cat $i
+    esac
+done
+touch $HOME/.news_time
+```
+The extra newlines in the header separate the news items as they are printed.
+The first value of `IFS` is just a newline, so the `not found` message (if any) from `ls` is treated as a single argument.
+The second assignment to `IFS` resets it to a blank, so the output of the second `ls` is split into multiple arguments.
+
 ### 5.9 `get` and `put`: tracking file changes
 ### 5.10 A look back
+
+When you're faced with writing a new program, there's a natural tendency to start thinking immediately about how to write it in your favorite programming language.
+In our case, that language is most often the shell.
+
+Although it has some unusual syntax, the shell is an excellent programming language.
+It is certainly high-level; its operators are whole programs.
+Since it is interactive, programs can be developed interactively, and refined in small steps until they "work."
+After that, if they are intended for more than personal use, they can be polished and hardened for a wider user population.
+In those infrequent cases where a shell programs turns out to be too inefficient, some or all of it can be rewritten in C, but with the design already proven and a working implementation in hand.
+(We'll follow this path a couple of times in the next chapter.)
+
+This general approach is characteristic of the UNIX programming environment - build on what others have done instead of starting over from nothing; start with something small and let it evolve; use the tools to experiment with new ideas.
+
+In this chapter, we've presented many examples that are easy to do with existing programs and the shell.
+Sometimes it's enough merely to rearrange arguments; that was the case with `cal`.
+Sometimes the shell provides a loop over a set of filenames or though a sequence of command executions, as in `watchfor` and `checkmail`.
+More complicated examples are still less work than they would be in C; for instance, our 20-line shell version of `news` replaces a 350-line version written in C.
+
+But it's not enough to have a programmable command language.
+Nor is it enough to have a lot of programs.
+What matters is that all of the components *work together*.
+They share conventions about how information is represented and communicated.
+Each is designed to focus on one job and do it well.
+The shell then serves to bind them together, easily and efficiently, whenever you have a new idea.
+This cooperation is why the UNIX programming environment is so productive.
