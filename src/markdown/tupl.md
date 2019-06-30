@@ -121,3 +121,11 @@
 
 ### `set`
 
+## Chapter 6: Programming with Standard I/O
+
+### Terms
+
+| Term         | Definition |
+|--------------|------------|
+| header file  |
+| file pointer |
