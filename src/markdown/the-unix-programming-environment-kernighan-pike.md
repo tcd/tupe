@@ -660,6 +660,83 @@ ttyin()
         return buf[0];
 }
 ```
+The file pointer `devtty` is declared `static` so that it retains its value from one call of `ttyin` to the next; the file `/dev/tty` is opened on the first call only.
+
+There are obviously extra features that could be added to `p` without much work, but it is worth noting that our first version of this program did just what is described here: print 22 lines and wait.
+It was a long time before other things were added, and to this day only a few people use the extra features.
+
+One easy extra is to make the number of lines per page a variable `pagesize` that can be set from the command line:
+```
+$ p -n ...
+```
+prints in `n`-line chunks.
+This requires only adding some familiar code at the beginning of `main`:
+```c
+/* p:  print input in chunks (version 2) */
+...
+    int pagesize = PAGESIZE;
+
+    progname = argv[0];
+    if (argc > 1 && argv[1][0] == '-') {
+        pagesize = atoi(&argv[1][1]);
+            argc--;
+            argv++;
+    }
+...
+```
+The function `atoi` converts a character string to an integer.
+(see `atoi`(3).)
+
+Another addition to `p` is the ability to escape temporarily at the end of each page to do some other command.
+By analogy to `ed` and many other programs, if the user types a line that begins with an exclamation mark, the rest of that line is taken to be a command, and is passed to a shell for execution.
+This feature is also trivial, since there is a function called `system`(3) to do the work, but read the caveat below.
+The modified version of `ttyin` follows:
+```c
+/* process response from /dev/tty (version 2) */
+ttyin() {
+    char buf[BUFSIZ];
+    FILE *efopen();
+    static FILE *tty = NULL;
+
+    if (tty == NULL)
+        tty = efopen("/dev/tty", "r");
+    if (fgets(buf, BUFSIZ, tty) == NULL || buf[0] == 'q')
+        exit(0);
+    else if (buf[0] == '!') {
+        system(buf+1); /* BUG: here is a bug */
+        printf("!\n");
+    }
+    else    /* ordinary line */
+        return buf[0];
+}
+```
+
+Unfortunately, this version of `ttyin` has a subtle pernicious bug.
+The command run by `system` inherits the standard input from `p`, so if `p` is reading from a pipe or a file, the command may interfere with its input:
+```
+$ cat /etc/passwd | p -1
+root:3D.fHR5KoB.3s:0:1:S.User:/:!ed  Invoke ed from within p
+?                                    ed reads /etc/passwd...
+!                                    ... is confused and quits
+```
+The solution requires knowledge about how UNIX processes are controlled, and we will present it in Section 7.4.
+For now, be aware that the standard `system` in the library can cause trouble, but that `ttyin` works correctly if compiled with the version of `system` in Chapter 7.
+
+We have now written two programs, `vis` and `p`, that might be considered variants of `cat`, with some embellishments.
+So should they all be part of `cat`, accessible by optional arguments like `-v` and `-p`?
+The question of whether to write a new program or add features to an old one arises repeatedly as people have new ideas.
+We don't have a definitive answer, but there are some principals that help to decide.
+
+The main principal is that a program should only do one basic job - if it does too many things, it gets bigger, slower, harder to maintain, and harder to use.
+Indeed, the features often lie unused because people can't remember the options anyway.
+
+This suggests that `cat` and `vis` should *not* be combined.
+`cat` just copies its input, unchanged, while `vis` transforms it.
+Merging them makes a program that does two different things.
+It's almost as clear with `cat` and `p`.
+`cat` is meant for fast, efficient copying; `p` is meant for browsing.
+And `p` does transform its output: every 22nd newline is dropped.
+Three separate programs seems to be the proper design.
 
 ### 6.5 An example: `pick`
 ### 6.6 On bugs and debugging
