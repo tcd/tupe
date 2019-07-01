@@ -739,6 +739,77 @@ And `p` does transform its output: every 22nd newline is dropped.
 Three separate programs seems to be the proper design.
 
 ### 6.5 An example: `pick`
+
+A version of `pick` in Chapter 5 was clearly stretching the capabilities of the shell.
+The C version that follows is somewhat different from the one in Chapter 5.
+If it has arguments, they are processed as before.
+But if the single argument `-` is specified, `pick` processes its standard input.
+
+Why not just read the standard input if there are no arguments?
+Consider the second version of the `zap` command in Section 5.6:
+```
+kill $SIG `pick \`ps -ag | egrep "$*"\` | awk '{print $1}'`
+```
+What happens if the `egrep` pattern doesn't match anything?
+In that case, `pick` has no arguments and starts to read its standard input; the `zap` command fails in a mystifying way.
+Requiring an explicit argument is an easy way to disambiguate such situations, and the `-` convention from `cat` and other programs indicates how to specify it.
+
+```c
+// pick: offer choice on each argument
+
+#include <stdio.h>
+#include <string.h>
+
+char *progname; // program name for error message
+
+int main(int argc, char *argv[]) {
+
+    void pick(char *s);
+
+    int i;
+    char buf[BUFSIZ];
+
+    progname = argv[0];
+
+    if (argc == 2 && strcmp(argv[1], "-") == 0) {  // pick -
+        while (fgets(buf, sizeof buf, stdin) != NULL) {
+            buf[strlen(buf)-1] = '\0';  // drop newline
+            pick(buf);
+        }
+    } else {
+        for (i = 1; i < argc; i++)
+            pick(argv[i]);
+    }
+    return 0;
+}
+
+// offer choice of s
+void pick(char *s) {
+    int ttyin();
+
+    fprintf(stderr, "%s? ", s);
+    if (ttyin() == 'y')
+        printf("%s\n", s);
+}
+
+// process response from /dev/tty (version 1)
+int ttyin() {
+    char buf[BUFSIZ];
+    FILE *efopen();
+    static FILE *tty = NULL;
+
+    if (tty == NULL)
+        tty = efopen("/dev/tty", "r");
+    if (fgets(buf, BUFSIZ, tty) == NULL || buf[0] == 'q')
+        return 0;
+    else
+        return buf[0];
+}
+```
+
+`pick` centralizes in one program a facility for interactively selecting arguments.
+This not only provides a useful service, but also reduces the need for "interactive" options on other commands.
+
 ### 6.6 On bugs and debugging
 ### 6.7 An example: `zap`
 ### 6.8 An interactive file comparison program: `idiff`
