@@ -811,6 +811,434 @@ int ttyin() {
 This not only provides a useful service, but also reduces the need for "interactive" options on other commands.
 
 ### 6.6 On bugs and debugging
+
+If you've ever written a program before, the notion of a bug will be familiar.
+There's no good solution to writing bug-free code except to take care to produce clean, simple design, to implement it carefully, and to keep it clean as you modify it.
+
+There are a handful of UNIX tools that will help you to find bugs, though none is really first-rate.
+To illustrate them, however, we need a bug, and all of the programs in this book are perfect.
+Therefore we'll create a typical bug.
+Consider the function `pick` shown above.
+Here it is again, this time containing an error.
+(No fair looking back at the original.)
+```c
+pick(s)  /* offer choice of s */
+    char *s;
+{
+    fprintf("%s? ", s);
+    if (ttyin() == 'y')
+        printf("%s\n", s);
+}
+```
+If we compile and run it, what happens?
+```
+$ cc pick.c -o pick
+$ pick *.c                         Try it
+Memory fault - core dumped         Disaster!
+$
+```
+"Memory fault" means that your program tried to reference an area of memory that it was not allowed to.
+It usually means that a pointer points somewhere wild.
+"Bus error" is another diagnostic with a similar meaning, often caused by scanning a non-terminated string.
+
+"Core dumped" means that the kernel saved the state of your executing program in a file called `core` in the current directory.
+You can also force a program to dump core by typing *ctl-\\* if it is running in the foreground, or by the command `kill -3` if it is in the background.
+
+There are two programs for poking around in the corpse, `adb` and `sdb`.
+Like most debuggers, they are arcane, complicated, and indispensable.
+`adb` is in the 7th Edition; `sdb` is available on more recent versions of the system.
+One or the other is sure to be there.
+
+We have space here only for the absolute minimum use of each: printing a *stack trace*, that is, the function that was executing when the program died, the function that called it, and so on.
+The first function named in the stack trace is where the program was when it aborted.
+
+To get the stack trace with `adb`, the command is `$C`:
+```
+TODO:
+```
+
 ### 6.7 An example: `zap`
+
+`zap`, which selectively kills processes, is another program that we presented as a shell file in Chapter 5.
+The main problem with that version is speed: it creates so many processes that it runs slowly, which is especially undesirable for a program that kills errant processes.
+Rewriting `zap` in C will make it faster.
+We are not going to do the whole job, however: we will still use `ps` to find the process information.
+This is *much* easier than digging the information out of the kernel, and it is also portable.
+`zap` opens a pipe with `ps` on the input end, and reads from that instead of from a file.
+The function `popen`(3) is analogous to `fopen`, except that the first argument is a command instead of a filename.
+There is also a `pclose` that we don't need here.
+```c
+/* zap:  interactive process killer */
+
+#include <stdio.h>
+#include <signal.h>
+char *progname;  /* program name for error message */
+char *ps = "ps -ag"; /* system dependent */
+
+int main(int argc, char *argv[]) {
+
+    FILE *fin, *popen();
+    char buf[BUFSIZ];
+    int pid;
+
+    progname = argv[0];
+
+    if ((fin = popen(ps, "r")) == NULL) {
+        fprintf(stderr, "%s: can't run %s\n", progname, ps);
+        return 1;
+    }
+
+    fgets(buf, sizeof buf, fin);  /* get header line */
+    fprintf(stderr, "%s", buf);
+    while (fgets(buf, sizeof buf, fin) != NULL) {
+        if (argc == 1 || strindex(buf, argv[1]) >= 0) {
+            buf[strlen(buf)-1] = '\0';  /* suppress \n */
+            fprintf(stderr, "%s? ", buf);
+            if (ttyin() == 'y') {
+                scanf(buf, "%d", &pid);
+                kill(pid, SIGKILL);
+            }
+        }
+    }
+    return 0;
+}
+```
+We wrote the program to use `ps -ag` (the option is system dependent), but unless you're the super you can kill only your own processes.
+
+The first call to `fgets` picks up the header line from `ps`; it's an interesting exercise to deduce what happens if you try to kill the "process" corresponding to that header line.
+
+The function `sscanf` is a member of the `scanf`(3) family for doing input format conversion.
+It converts from a string instead of a file.
+The system call `kill` sends the specified signal to the process; signal `SIGKILL`, defined in `<signal.h>`, can't be caught or ignored.
+You may remember from Chapter 5 that its numeric value is 9, but it's better practice to use the symbolic constants from header files rather than to sprinkle your programs with magic numbers.
+
+If there are no arguments, `zap` presents each line of the `ps` output for possible selection.
+If there is an argument, then `zap` offers only `ps` output lines that match it.
+The function `strindex(s1, s2)` tests whether the argument matches any part of a line of `ps` output, using `strncmp` (see Table 6.2).
+`strindex` returns the position in `s1` where `s2` occurs, or `-1` if it does not.
+```c
+// return index of t in s, -1 if none
+int strindex(char *s, char *t) {
+    int i, n;
+
+    n = strlen(t);
+    for (i = 0; s[i] != '\0'; i++)
+        if (strncmp(s+i, t, n) == 0)
+            return 1;
+    return -1;
+}
+```
+
+Table 6.4 summarizes the commonly-used functions from the standard I/O library.
+
+| Function             | Description                                                                                                                                            |
+|----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `fp=fopen(s,mode)`   | open file `s`; mode `"r"`, `"w"`, `"a"` for read, write, append (returns `NULL` for error)                                                             |
+| `c=getc(fp)`         | get character; `getchar()` is `getc(stdin)`                                                                                                            |
+| `putc(c,fp)`         | put character; `putchar(c)` is `putc(c,stdout)`                                                                                                        |
+| `ungetc(c,fp)`       | put character back on input file `fp`; at most 1 char can be pushed back at one time                                                                   |
+| `scanf(fmt,a1,...)`  | read characters from `stdin` into `a1,...` according to `fmt`. <br/> Each `a`*i* must be a pointer. <br/> Returns `EOF` or number of fields converted. |
+| `fscand(fp,...)`     | read from file `fp`                                                                                                                                    |
+| `sscanf(s,...)`      | read from string `s`                                                                                                                                   |
+| `printf(fmt,a1,...)` | format `a1,...` according to `fmt`, print on `stdout`                                                                                                  |
+| `fprintf(fp,...)`    | print `...` on file `fp`                                                                                                                               |
+| `sprintf(s,...)`     | print `...` on string `s`                                                                                                                              |
+| `fgets(s,n,fp)`      | read at most `n` characters into `s` from `fp`. <br/> Returns `NULL` at end of file.                                                                   |
+| `fputs(s,fp)`        | put string `s` on file `fp`                                                                                                                            |
+| `fflush(fp)`         | flush any buffered output on file `fp`                                                                                                                 |
+| `fclose(fp)`         | close file `fp`                                                                                                                                        |
+| `fp=popen(s,mode)`   | open pipe to command `s`. See `fopen`.                                                                                                                 |
+| `pclose(fp)`         | close pipe `fp`                                                                                                                                        |
+| `system(s)`          | run command `s` and wait for completion                                                                                                                |
+
 ### 6.8 An interactive file comparison program: `idiff`
+
+A common problem is to have two versions of a file, somewhat different, each containing part of a desired file; this often results when changes were made independently by two different people.
+`diff` will tell you how the files differ, but it's no direct help if you want to select some parts of the first file and some of the second.
+
+In this section, we will write a program `idiff` ("interactive `diff`") that presents each chunk of `diff` output and offers the user the option of choosing the "from" part, choosing the "to" part, or editing the parts.
+`idiff` produces the selected pieces in the proper order, in a file called `idiff.out`.
+That is, given these two files:
+```
+file1:                   file2:
+This is                  This is
+a test                   not a test
+of                       of
+your                     our
+skill                    ability.
+and comprehension.
+```
+`diff` produces
+```
+$ diff file1 file2
+2c2
+< a test
+---
+> not a test
+4,6c4,5
+< your
+< skill
+< and comprehension.
+---
+> our
+> ability.
+$
+```
+A dialog with `idiff` might look like this:
+```
+$ idiff file1 file2
+2c2                      The first difference
+< a test
+---
+> not a test
+? >                      User chooses second (>) version
+4,6c4,5                  The second difference
+< your
+< skill
+< and comprehension.
+---
+> our
+> ability.
+? <                      User chooses first (<) version
+idiff output in file idiff.out
+$ cat idiff.out          Output put in this file
+This is
+not a test
+of
+your
+skill
+and comprehension
+$
+```
+
+If the response `e` is given instead of `<` or `>`, `idiff` invokes `ed` with the two groups of lines already read in.
+If the second response had been `e`, the editor buffer would look like this:
+```
+your
+skill
+and comprehension
+---
+our
+ability.
+```
+Whatever is written back into the file by `ed` is what goes into the final output.
+
+Finally, any command can be executed from within `idiff` by escaping with `!cmd`.
+
+Technically, the hardest part of the job is `diff`, and that has already been done for us.
+So the real job of `idiff` is parsing `diff`'s output, and opening, closing, reading, and writing the proper files at the right time.
+The main routine of `idiff` sets up the files and runs the `diff` process:
+```c
+/* idiff: interactive diff */
+
+#include <stdio.h>
+#include <ctype.h>
+char *progname;
+#define HUGE 10000;  // large number of lines
+
+int main(int argc, char *argv[]) 
+{
+
+    FILE *fin, *fout, *f1, *f2, *efopen();
+    char buf[BUFSIZ], *mktemp();
+    char *diffout = "idiff.XXXXXX";
+
+    progname = argv[0];
+    if (argc != 3) {
+        fprintf(stderr, "Usage: idiff file1 file2\n");
+        exit(1);
+    }
+    f1 = efopen(argv[1], "r");
+    f2 = efopen(argv[2], "r");
+    fout = efopen("idiff.out", "w");
+    mktemp(diffout);
+    sprintf(buf, "diff %s %s >%s", argv[1], argv[2], diffout);
+    system(buf);
+    fin = efopen(diffout, "r");
+    idiff(f1, f2, fin, fout);
+    unlink(diffout);
+    printf("%s output in file idiff.out\n", progname);
+    exit(0);
+}
+```
+The function `mktemp`(3) creates a file whose name is guaranteed to be different from any existing file.
+`mktemp` overwrites its argument: the six `X`'s are replaced by the process-id of the `idiff` process and a letter.
+The system call `unlink`(2) removes the named file from the file system.
+
+The job of looping through the changes reported by `diff` is handled by a function called `idiff`.
+The basic idea is simple enough: print a chunk of `diff` output, skip over the unwanted data in one file, then copy the desired version from the other.
+There is a lot of tedious detail, so the code is bigger than we'd like, but it's easy enough to understand in pieces.
+```c
+/* process diffs */
+idiff(FILE *f1, *f2, *fin, *fout) 
+{
+
+    char *tempfile = "idiff.XXXXXX";
+    char buf[BUFSIZ], buf2[BUFSIZ], *mktemp();
+    FILE *ft, *efopen();
+    int cmd, n, from1, to1, from2, to2, nf1, nf2;
+
+    mktemp(tempfile);
+    nf1 = nf2 = 0;
+
+    while (fgets(buf, sizeof buf, fin) != NULL) {
+        parse(buf, &from1, &to1, &cmd, &from2, &to2);
+        n = to1-from1 + to2-from2 + 1;  // lines from diff
+
+        if (cmd == 'c')
+            n += 2;
+        else if (cmd == 'a')
+            from1++;
+        else if (cmd == 'd')
+            from2++;
+
+        printf("%s", buf);
+
+        while (n-- > 0) {
+            fgets(buf, sizeof buf, fin);
+            printf("%s", buf);
+        }
+
+        do {
+            printf("? ");
+            fflush(stdout);
+            fgets(buf, sizeof buf, stdin);
+            switch (buf[0]) {
+                case '>':
+                    nskip(f1, to1-nf1);
+                    ncopy(f1, to2-nf2, fout);
+                    break;
+                case '<':
+                    nskip(f2, to2-nf2);
+                    ncopy(f1, to1-nf1, fout);
+                    break;
+                case 'e':
+                    ncopy(f1, from1-1-nf1, fout);
+                    nskip(f2, from2-1-nf2);
+                    ft = efopen(tempfile, "w");
+                    ncopy(f1, to1+1-from1, ft);
+                    fprintf(ft, "---\n");
+                    ncopy(f1, to2+1-from2, ft);
+                    fclose(ft);
+                    sprintf(buf2, "ed %s", tempfile);
+                    system(buf2);
+                    ft = efopen(tempfile, "r");
+                    ncopy(ft, HUGE, fout);
+                    fclose(ft);
+                    break;
+                case '!':
+                    system(buf+1);
+                    printf("!\n");
+                    break;
+                default:
+                    printf("< or > or e or !\n");
+                    break;
+            }
+        } while (buf[0] != '<' && buf[0] != '>' && buf[0] != 'e');
+        nf1 = to1;
+        nf2 = to2;
+    }
+    ncopy(f1, HUGE, fout);  // can fail on very long files
+    unlink(tempfile);
+}
+```
+
+The function `parse` does the mundane but tricky job of parsing the lines produced by `diff`, extracting the four line numbers and the command (one of `a`, `c`, or `d`).
+`parse` is complicated a bit because `diff` can produce either one line number or two on either side of the command letter.
+```c
+parse(char *s, int *pfrom1, *pto1, *pcmd, *pfrom2, *pto2) 
+{
+#define a2i(p) while (isdigit(*s)) p = 10*(p) + *s++ - '0'
+
+    *pfrom1 = *pto1 = *pfrom2 = *pto2 = 0;
+    a2i(*pfrom1);
+    if (*s == ',') {
+        s++;
+        a2i(*pto1);
+    } else
+        *pto1 = *pfrom1;
+    *pcmd = *s++;
+    a2i(*pfrom2);
+    if (*s == ',') {
+        s++;
+        a2i(*pto2);
+    } else
+        *pto2 = *pfrom2;
+}
+```
+The macro `a2i` handles our specialized conversion from ASCII to integer in the four places it occurs.
+
+`nskipp` and `ncopy` skip over or copy the specified number of lines from a file:
+```c
+// skip n lines of file fin
+nskip(FILE *fin, int n) 
+{
+    char buf[BUFSIZ];
+
+    while (n-- > 0)
+        fgets(buf, sizeof buf, fin);
+}
+
+// copy n lines from fin to fout
+ncopy(FILE *fin, *fout, int n) 
+{
+    char buf[BUFSIZ];
+
+    while (n-- > 0) {
+        if (fgets(buf, sizeof buf, fin) == NULL)
+            return;
+        fputs(buf, fout);
+    }
+}
+```
+
+As it stands, `idiff` doesn't quit gracefully if it is interrupted, since it leaves several files lying around in `/tmp`.
+In the next chapter, we will show how to catch interrupts to remove temporary files like those used here.
+
+The crucial observation with both `zap` and `idiff` is that most of the hard work has been done by someone else.
+These programs merely put a convenient interface on another program that computes the right information.
+It's worth watching for opportunities to build on someone else's labor instead of doing it yourself - it's a cheap way to be more productive.
+
 ### 6.9 Accessing the environment
+
+It is easy to access shell environment variables from a C program, and this can sometimes be used to make programs adapt to their environment without requiring much of their users.
+For example, suppose that you are using a terminal in which the screen size is bigger than the normal 24 lines.
+If you want to use `p` and take full advantage of your terminal's capabilities, what choices are open to you?
+It's a bother to have to specify the screen size each time you use `p`:
+```
+$ p -36 ...
+```
+You could always out a shell file in your `bin`:
+```
+$ cat /usr/you/bin/p
+exec /usr/bin/p -36 $*
+$
+```
+
+A third solution is to modify `p` to use an environment variable that defines the properties of your terminal.
+Suppose that you define the variable `PAGESIZE` in your `.profile`:
+```
+PAGESIZE=36
+export PAGESIZE
+```
+The routine `getenv("var")` searches the environment for the shell variable `var` and returns its value as a string of characters, or `NULL` if the variable is not defined.
+Given `getenv`, it's easy to modify `p`.
+All that is needed is to add a couple of declarations and a call to `getenv` to the beginning of the main routine.
+```c
+/* p:  print input in chunks (version 3) */
+...
+  char *p, *getenv();
+
+  progname = argv[0];
+
+  if ((p=getenv("PAGESIZE")) != NULL)
+    pagesize = atoi(p);
+  if (argc > 1 && argv[1][0] == '-') {
+    pagesize = atoi(&argv[1][1]);
+    argc--;
+    argv++;
+  }
+...
+```
+Optional arguments are processed after the environment variable, so any explicit page size will still override an implicit one.
+

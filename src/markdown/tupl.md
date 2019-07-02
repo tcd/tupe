@@ -129,3 +129,4 @@
 |--------------|------------|
 | header file  |
 | file pointer |
+| stack trace  | the function that was executing when the program died, the function that called it, and so on. |
