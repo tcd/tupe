@@ -130,3 +130,22 @@
 | header file  |
 | file pointer |
 | stack trace  | the function that was executing when the program died, the function that called it, and so on. |
+
+## Chapter 7: UNIX System Calls
+
+### Terms
+
+| Term               | Definition |
+|--------------------|------------|
+| *opening* (a file) |
+| file descriptor    |
+| inode table |
+| child process |
+| parent process |
+
+### Signals
+- interrupt
+- quit
+- hangup
+- terminate
+
