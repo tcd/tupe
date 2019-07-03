@@ -149,3 +149,14 @@
 - hangup
 - terminate
 
+## Chapter 8: Program Development
+
+### Terms
+
+| Term             | Definition |
+|------------------|------------|
+| parser generator |
+| production       |
+| action           |
+| lexical analyzer |
+| token            |
