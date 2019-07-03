@@ -190,7 +190,47 @@ We settled on `hoc`, which stands for "high-order calculator."
 The versions are thus `hoc1`, `hoc2`, etc.
 
 ### 8.1 Stage 1: A four-function calculator
+
+This section describes the implementation of `hoc1`, a program that provides about the same capabilities as a minimal pocket calculater, and is substantially less portable.
+It has only four functions: `+`, `-`, `*`, and `/`, but it does have parentheses that can be nested arbitrarily deeply, which few pocket calculators provide.
+If you type an expression followed by RETURN, the answer will be printed on the next line:
+```
+$ hoc1
+4*3*2
+      24
+(1+2) * (3+4)
+      21
+1/2
+      0.5
+355/113
+      3.1415929
+-3-4
+hoc1: syntax error near line 4
+$
+```
+
 #### Grammars
+
+Ever since Backnus-Naur Form was developed for Algol, languages have been described by formal grammars.
+The grammar for `hoc1` is small and simple in its abstract representation:
+```
+list:   expr \n
+        list expr \n
+expr:   NUMBER
+        expr + expr
+        expr - expr
+        expr * expr
+        expr / expr
+        ( expr )
+```
+In other words, a `list` is a sequence of expressions, each followed by a newline.
+An expression is a number, or a pair of expressions joined by an operator, or a parenthesized expression.
+
+This is not complete.
+Among other things, it does not specify the normal precedence and associativity of the operators, nor does it attach a meaning to any construct.
+And although `list` is defined in terms of `expr`, and `expr` is defined in terms of `NUMBER`, `NUMBER` itself is nowhere defined.
+These details have to be filled in to go from a sketch of the language to a working program.
+
 #### Overview of `yacc`
 #### Stage 1 program
 #### Making changes - unary minus
