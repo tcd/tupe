@@ -160,3 +160,12 @@
 | action           |
 | lexical analyzer |
 | token            |
+| parse tree |
+
+## Chapter 9: Document Preparation
+
+### Terms
+
+| Term             | Definition |
+|------------------|------------|
+|
